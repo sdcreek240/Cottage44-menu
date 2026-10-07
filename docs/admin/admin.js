@@ -22,20 +22,40 @@ const forgotPasswordButton = document.querySelector("#forgot-password");
 const backToSignInButton = document.querySelector("#back-to-sign-in");
 const backFromPasswordResetButton = document.querySelector("#back-from-password-reset");
 const dashboard = document.querySelector("#dashboard");
+const dashboardViews = {
+  "today-plan-view": document.querySelector("#today-plan-view"),
+  "plate-library-view": document.querySelector("#plate-library-view"),
+  "history-view": document.querySelector("#history-view"),
+};
+const dashboardNavigation = {
+  "today-plan-view": document.querySelector("#nav-today-plan"),
+  "plate-library-view": document.querySelector("#nav-plate-library"),
+  "history-view": document.querySelector("#nav-history"),
+};
 const signOutButton = document.querySelector("#sign-out");
 const plateForm = document.querySelector("#plate-form");
+const plateEditorPanel = document.querySelector("#plate-editor-panel");
+const plateEditorTitle = document.querySelector("#editor-title");
 const plateIdInput = document.querySelector("#plate-id");
 const nameInput = document.querySelector("#plate-name");
 const descriptionInput = document.querySelector("#plate-description");
 const priceInput = document.querySelector("#plate-price");
 const imageInput = document.querySelector("#plate-image");
+const cameraImageInput = document.querySelector("#plate-camera-image");
 const imageNote = document.querySelector("#image-note");
 const imagePreview = document.querySelector("#image-preview");
 const imagePreviewImage = document.querySelector("#image-preview-image");
 const clearImageButton = document.querySelector("#clear-image");
 const plateList = document.querySelector("#plate-list");
 const historyList = document.querySelector("#history-list");
+const historyState = document.querySelector("#history-state");
+const historyRetryButton = document.querySelector("#history-retry");
+const historyLoadMoreButton = document.querySelector("#history-load-more");
+const historySearchInput = document.querySelector("#history-search");
+const historyEventFilter = document.querySelector("#history-event-filter");
 const todaySelect = document.querySelector("#today-select");
+const todayPlateSearch = document.querySelector("#today-plate-search");
+const todayPlateSearchWrap = document.querySelector("#today-plate-search-wrap");
 const todaySummary = document.querySelector("#today-summary");
 const serviceDate = document.querySelector("#service-date");
 const setTodayButton = document.querySelector("#set-today");
@@ -43,14 +63,25 @@ const newPlateButton = document.querySelector("#new-plate");
 const cancelEditButton = document.querySelector("#cancel-edit");
 const scheduleDateInput = document.querySelector("#schedule-date");
 const scheduleSelect = document.querySelector("#schedule-select");
+const planPlateSearch = document.querySelector("#plan-plate-search");
+const planPlateSearchWrap = document.querySelector("#plan-plate-search-wrap");
+const libraryPlateSearch = document.querySelector("#library-plate-search");
+const libraryPlateSearchWrap = document.querySelector("#library-plate-search-wrap");
+const librarySearchEmpty = document.querySelector("#library-search-empty");
 const saveScheduleButton = document.querySelector("#save-schedule");
 const savePlateButton = document.querySelector("#save-plate");
+const averagePriceButton = document.querySelector("#average-price");
 const scheduleSummary = document.querySelector("#schedule-summary");
 const weeklyPlanList = document.querySelector("#weekly-plan-list");
+const clearTodayButton = document.querySelector("#clear-today");
 
 let plates = [];
-let history = [];
+let upcomingAssignments = [];
+let historyEvents = [];
+let historyNextBefore = null;
+let historyHasMore = false;
 let todayPlateId = null;
+let selectedImageFile = null;
 let savedImageUrl = null;
 let previewObjectUrl = null;
 let statusTimer = null;
@@ -59,6 +90,7 @@ let toastAudioUnlocking = false;
 let toastAudioUnlocked = false;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2000;
+const PLATE_SEARCH_THRESHOLD = 8;
 const SOURCE_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -276,9 +308,22 @@ function showSignedOut() {
   signInPanel.hidden = false;
 }
 
+function showDashboardView(viewId) {
+  const selectedView = dashboardViews[viewId] ? viewId : "today-plan-view";
+  for (const [id, view] of Object.entries(dashboardViews)) {
+    view.hidden = id !== selectedView;
+    if (id === selectedView) {
+      dashboardNavigation[id].setAttribute("aria-current", "page");
+    } else {
+      dashboardNavigation[id].removeAttribute("aria-current");
+    }
+  }
+}
+
 async function showDashboard() {
   signInPanel.hidden = true;
   dashboard.hidden = false;
+  showDashboardView(window.location.hash.slice(1));
   signOutButton.hidden = false;
   await loadDashboard();
 }
@@ -290,14 +335,69 @@ function formatPrice(priceCents) {
   }).format(priceCents / 100);
 }
 
+function formatServiceDate(isoDate) {
+  if (typeof isoDate !== "string") {
+    return "";
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) {
+    return isoDate;
+  }
+  const [, year, month, day] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (
+    date.getUTCFullYear() !== Number(year) ||
+    date.getUTCMonth() !== Number(month) - 1 ||
+    date.getUTCDate() !== Number(day)
+  ) {
+    return isoDate;
+  }
+  return `${day}/${month}/${year}`;
+}
+
+function formatRecordedAt(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Africa/Johannesburg",
+  }).format(date);
+}
+
+function normalizeSearch(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function matchingPlates(searchText, selectedId = "") {
+  const query = normalizeSearch(searchText);
+  return plates.filter((plate) =>
+    !query ||
+    plate.id === selectedId ||
+    normalizeSearch(`${plate.name} ${plate.description}`).includes(query)
+  );
+}
+
 function updateTodaySummary() {
   const selected = plates.find((plate) => plate.id === todayPlateId);
   todaySummary.textContent = selected
     ? `${selected.name} — ${formatPrice(selected.priceCents)}`
     : "No plate has been selected for today.";
+  clearTodayButton.hidden = !selected;
 }
 
-function renderPlateList() {
+function renderPlateList(preserveSelection = false) {
+  const todaySelection = preserveSelection ? todaySelect.value : todayPlateId ?? "";
+  const scheduleSelection = preserveSelection ? scheduleSelect.value : "";
   plateList.replaceChildren();
   todaySelect.replaceChildren();
   const placeholder = document.createElement("option");
@@ -305,13 +405,17 @@ function renderPlateList() {
   placeholder.textContent = plates.length ? "Select a saved plate" : "Save a plate first";
   todaySelect.append(placeholder);
 
-  for (const plate of plates) {
+  for (const plate of matchingPlates(todayPlateSearch.value, todaySelection)) {
     const option = document.createElement("option");
     option.value = plate.id;
     option.textContent = plate.name;
-    option.selected = plate.id === todayPlateId;
+    option.selected = plate.id === todaySelection;
     todaySelect.append(option);
+  }
+  todaySelect.value = todaySelection;
 
+  const libraryPlates = matchingPlates(libraryPlateSearch.value);
+  for (const plate of libraryPlates) {
     const item = document.createElement("li");
     item.className = "plate-item";
     const details = document.createElement("div");
@@ -343,18 +447,25 @@ function renderPlateList() {
     item.append(details, actions);
     plateList.append(item);
   }
+  librarySearchEmpty.hidden = !libraryPlateSearch.value || libraryPlates.length > 0;
+  const shouldShowSearch = plates.length > PLATE_SEARCH_THRESHOLD;
+  todayPlateSearchWrap.hidden = !shouldShowSearch;
+  planPlateSearchWrap.hidden = !shouldShowSearch;
+  libraryPlateSearchWrap.hidden = !shouldShowSearch;
   setTodayButton.disabled = plates.length === 0;
+  averagePriceButton.disabled = plates.length === 0;
   scheduleSelect.replaceChildren();
   const schedulePlaceholder = document.createElement("option");
   schedulePlaceholder.value = "";
   schedulePlaceholder.textContent = "Not planned";
   scheduleSelect.append(schedulePlaceholder);
-  for (const plate of plates) {
+  for (const plate of matchingPlates(planPlateSearch.value, scheduleSelection)) {
     const option = document.createElement("option");
     option.value = plate.id;
     option.textContent = plate.name;
     scheduleSelect.append(option);
   }
+  scheduleSelect.value = scheduleSelection;
   updateTodaySummary();
   updateScheduleSummary();
 }
@@ -362,14 +473,14 @@ function renderPlateList() {
 function updateScheduleSummary() {
   const selected = plates.find((plate) => plate.id === scheduleSelect.value);
   scheduleSummary.textContent = selected && scheduleDateInput.value
-    ? `${selected.name} is ready to be planned for ${scheduleDateInput.value}.`
+    ? `${selected.name} is ready to be planned for ${formatServiceDate(scheduleDateInput.value)}.`
     : scheduleDateInput.value
-    ? `No plate is planned for ${scheduleDateInput.value}.`
+    ? `No plate is planned for ${formatServiceDate(scheduleDateInput.value)}.`
     : "Choose a date.";
 }
 
 function selectScheduledPlate() {
-  const scheduled = history.find((item) => item.serviceDate === scheduleDateInput.value);
+  const scheduled = upcomingAssignments.find((item) => item.serviceDate === scheduleDateInput.value);
   scheduleSelect.value = scheduled?.plate.id ?? "";
   updateScheduleSummary();
 }
@@ -377,6 +488,7 @@ function selectScheduledPlate() {
 function planningWeekdays(startDate) {
   const dates = [];
   const date = new Date(`${startDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
   while (dates.length < 5) {
     const day = date.getUTCDay();
     if (day !== 0 && day !== 6) {
@@ -393,35 +505,43 @@ function addDays(value, amount) {
   return date.toISOString().slice(0, 10);
 }
 
-function renderWeeklyPlan() {
+function renderWeeklyPlan(preserveSelection = false) {
+  const currentSelections = preserveSelection
+    ? new Map([...weeklyPlanList.children].map((row) => [
+        row.dataset.serviceDate,
+        row.children[1].value,
+      ]))
+    : new Map();
   weeklyPlanList.replaceChildren();
-  if (!serviceDate.textContent) {
+  if (!serviceDate.dataset.isoDate) {
     return;
   }
-  const assignments = new Map(history.map((item) => [item.serviceDate, item.plate]));
-  for (const date of planningWeekdays(serviceDate.textContent)) {
+  const assignments = new Map(upcomingAssignments.map((item) => [item.serviceDate, item.plate]));
+  for (const [index, date] of planningWeekdays(serviceDate.dataset.isoDate).entries()) {
     const row = document.createElement("div");
     row.className = "weekly-plan-row";
+    row.dataset.serviceDate = date;
+    row.dataset.dayNumber = String(index + 2);
     const label = document.createElement("label");
-    label.textContent = new Intl.DateTimeFormat("en-ZA", {
+    const weekday = new Intl.DateTimeFormat("en-GB", {
       weekday: "long",
-      day: "numeric",
-      month: "short",
-      timeZone: "Africa/Johannesburg",
-    }).format(new Date(`${date}T12:00:00.000Z`));
+      timeZone: "UTC",
+    }).format(new Date(`${date}T00:00:00.000Z`));
+    label.textContent = `Day ${index + 2} · ${weekday} · ${formatServiceDate(date)}`;
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Saved plate for ${label.textContent}`);
     const empty = document.createElement("option");
     empty.value = "";
     empty.textContent = "Not planned";
     select.append(empty);
-    for (const plate of plates) {
+    const existing = plates.find((plate) => plate.id === currentSelections.get(date))
+      ?? assignments.get(date);
+    for (const plate of matchingPlates(planPlateSearch.value, existing?.id ?? "")) {
       const option = document.createElement("option");
       option.value = plate.id;
       option.textContent = plate.name;
       select.append(option);
     }
-    const existing = assignments.get(date);
     select.value = existing?.id ?? "";
     const button = document.createElement("button");
     button.type = "button";
@@ -444,8 +564,8 @@ function renderWeeklyPlan() {
         await loadDashboard();
         setStatus(
           select.value
-            ? `${result.today.plate.name} planned for ${date}.`
-            : `No plate planned for ${date}.`,
+            ? `${result.today.plate.name} planned for ${formatServiceDate(result.today.serviceDate)}.`
+            : `No plate planned for ${formatServiceDate(result.serviceDate)}.`,
           "success",
         );
       } catch (error) {
@@ -459,97 +579,233 @@ function renderWeeklyPlan() {
   }
 }
 
+function historyCategory(eventType) {
+  if (eventType === "assigned" || eventType === "backfilled") {
+    return "assignment";
+  }
+  if (eventType === "changed" || eventType === "cleared") {
+    return "plan";
+  }
+  return "library";
+}
+
+function historyTypeLabel(eventType) {
+  return {
+    assigned: "Plate assigned",
+    backfilled: "Earlier assignment",
+    changed: "Plan changed",
+    cleared: "Plan cleared",
+    plate_deleted: "Plate removed from library",
+  }[eventType] ?? "History event";
+}
+
+function historySummary(item) {
+  const previousName = item.previousPlate?.name;
+  const currentName = item.currentPlate?.name;
+  if (item.eventType === "changed") {
+    return `Changed from ${previousName || "no plate"} to ${currentName || "no plate"}`;
+  }
+  if (item.eventType === "cleared") {
+    return `${previousName || "Plate"} removed from the plan`;
+  }
+  if (item.eventType === "plate_deleted") {
+    return `${previousName || "Plate"} deleted from the library; historical record kept`;
+  }
+  return currentName || "Plate assignment";
+}
+
+function historySearchText(item) {
+  return normalizeSearch([
+    item.serviceDate,
+    formatServiceDate(item.serviceDate),
+    item.eventType,
+    historyTypeLabel(item.eventType),
+    historySummary(item),
+    item.occurredAt,
+    formatRecordedAt(item.occurredAt),
+    ...[item.previousPlate, item.currentPlate]
+      .filter(Boolean)
+      .flatMap((plate) => [
+        plate.name,
+        plate.description,
+        plate.priceCents,
+        formatPrice(plate.priceCents),
+      ]),
+  ].join(" "));
+}
+
+function historySnapshotLabel(label, plate) {
+  if (!plate) {
+    return "";
+  }
+  const parts = [plate.name, plate.description, formatPrice(plate.priceCents)]
+    .filter(Boolean);
+  return `${label}: ${parts.join(" · ")}`;
+}
+
 function renderHistory() {
   historyList.replaceChildren();
-  for (const item of history) {
+  const query = normalizeSearch(historySearchInput.value);
+  const category = historyEventFilter.value || "all";
+  const visibleEvents = historyEvents
+    .filter((item) =>
+      (category === "all" || historyCategory(item.eventType) === category) &&
+      (!query || historySearchText(item).includes(query))
+    )
+    .sort((left, right) =>
+      right.serviceDate.localeCompare(left.serviceDate) ||
+      right.occurredAt.localeCompare(left.occurredAt) ||
+      right.id - left.id
+    );
+
+  for (const item of visibleEvents) {
     const row = document.createElement("li");
     row.className = "history-item";
     const details = document.createElement("div");
     details.className = "history-item__details";
+    const type = document.createElement("span");
+    type.className = `history-item__type history-item__type--${historyCategory(item.eventType)}`;
+    type.textContent = historyTypeLabel(item.eventType);
     const date = document.createElement("span");
-    date.className = "eyebrow";
-    date.textContent = item.serviceDate;
+    date.className = "history-item__date";
+    date.textContent = `Service date · ${formatServiceDate(item.serviceDate)}`;
     const name = document.createElement("span");
     name.className = "history-item__name";
-    name.textContent = item.plate.name;
-    details.append(date, name);
+    name.textContent = historySummary(item);
+    details.append(type, date, name);
+    for (const [label, plate] of [
+      ["Before", item.previousPlate],
+      ["Plate", item.currentPlate],
+    ]) {
+      const snapshot = historySnapshotLabel(label, plate);
+      if (snapshot) {
+        const snapshotDetails = document.createElement("span");
+        snapshotDetails.className = "history-item__snapshot";
+        snapshotDetails.textContent = snapshot;
+        details.append(snapshotDetails);
+      }
+    }
+    const recorded = document.createElement("span");
+    recorded.className = "history-item__recorded";
+    recorded.textContent = `Recorded · ${formatRecordedAt(item.occurredAt)}`;
+    details.append(recorded);
     row.append(details);
     historyList.append(row);
   }
-  if (history.length === 0) {
-    const empty = document.createElement("li");
-    empty.textContent = "No saved history yet.";
-    historyList.append(empty);
+
+  if (!historyEvents.length) {
+    historyState.textContent = "No history yet. Assign a plate or make a change to start your record.";
+  } else if (!visibleEvents.length) {
+    historyState.textContent = `No loaded history entries match. Search covers ${historyEvents.length} loaded entries${historyHasMore ? "; load older history to search further back" : ""}.`;
+  } else {
+    historyState.textContent = `${visibleEvents.length} of ${historyEvents.length} loaded history ${historyEvents.length === 1 ? "entry" : "entries"} shown. ${historyHasMore ? "Search covers loaded entries only; load older history to search further back." : "Dates are DD/MM/YYYY; newest service dates first."}`;
+  }
+}
+
+async function loadHistory(before = null, append = false) {
+  if (append && !beginBusy(historyLoadMoreButton, "Loading…")) {
+    return;
+  }
+  historyState.textContent = append ? "Loading older history…" : "Loading history…";
+  historyRetryButton.hidden = true;
+  try {
+    const path = before === null
+      ? "/api/admin/history"
+      : `/api/admin/history?before=${encodeURIComponent(before)}`;
+    const result = await apiRequest(path);
+    if (!Array.isArray(result.events) || typeof result.hasMore !== "boolean") {
+      throw new Error("History could not be read. Please try again.");
+    }
+    historyEvents = append ? [...historyEvents, ...result.events] : result.events;
+    historyHasMore = result.hasMore;
+    historyNextBefore = result.nextBefore;
+    renderHistory();
+  } catch (error) {
+    historyState.textContent = error.message;
+    historyRetryButton.hidden = false;
+  } finally {
+    historyLoadMoreButton.hidden = !historyHasMore;
+    if (append) {
+      endBusy(historyLoadMoreButton);
+    }
   }
 }
 
 async function loadDashboard() {
-  setStatus("Loading saved plates and history…");
+  setStatus("Loading today’s plate, plan ahead, and plate library…");
+  let loaded = false;
   try {
     const catalog = await apiRequest("/api/admin/plates");
     const daily = await apiRequest("/api/admin/plates/today");
     plates = catalog.plates;
-    history = daily.history;
+    upcomingAssignments = daily.upcoming;
     todayPlateId = daily.today?.id ?? null;
-    serviceDate.textContent = daily.serviceDate;
+    serviceDate.dataset.isoDate = daily.serviceDate;
+    serviceDate.textContent = formatServiceDate(daily.serviceDate);
     scheduleDateInput.min = daily.serviceDate;
     scheduleDateInput.max = addDays(daily.serviceDate, 365);
     scheduleDateInput.value ||= daily.serviceDate;
     renderPlateList();
     renderWeeklyPlan();
-    renderHistory();
     selectScheduledPlate();
+    loaded = true;
     setStatus("");
   } catch (error) {
     setStatus(error.message, "error");
   }
-
-  scheduleDateInput.addEventListener("change", selectScheduledPlate);
-  scheduleSelect.addEventListener("change", updateScheduleSummary);
-
-  saveScheduleButton.addEventListener("click", async () => {
-    if (!beginBusy(saveScheduleButton, "Saving…")) {
-      return;
-    }
-    if (!scheduleDateInput.value) {
-      setStatus("Choose a date first.", "error");
-      endBusy(saveScheduleButton);
-      return;
-    }
-    setStatus(
-      scheduleSelect.value ? "Saving the planned plate…" : "Marking the day as not planned…",
-    );
-    try {
-      const result = await apiRequest("/api/admin/plates/today", {
-        method: "POST",
-        body: JSON.stringify({
-          serviceDate: scheduleDateInput.value,
-          plateId: scheduleSelect.value || null,
-        }),
-      });
-      await loadDashboard();
-      setStatus(
-        scheduleSelect.value
-          ? `${result.today.plate.name} planned for ${result.today.serviceDate}.`
-          : `No plate planned for ${result.serviceDate}.`,
-        "success",
-      );
-    } catch (error) {
-      setStatus(`Could not save ${scheduleDateInput.value}. ${error.message}`, "error");
-    } finally {
-      endBusy(saveScheduleButton);
-    }
-  });
+  await loadHistory();
+  return loaded;
 }
+
+scheduleDateInput.addEventListener("change", selectScheduledPlate);
+scheduleSelect.addEventListener("change", updateScheduleSummary);
+
+saveScheduleButton.addEventListener("click", async () => {
+  if (!beginBusy(saveScheduleButton, "Saving…")) {
+    return;
+  }
+  if (!scheduleDateInput.value) {
+    setStatus("Choose a date first.", "error");
+    endBusy(saveScheduleButton);
+    return;
+  }
+  setStatus(
+    scheduleSelect.value ? "Saving the planned plate…" : "Marking the day as not planned…",
+  );
+  try {
+    const result = await apiRequest("/api/admin/plates/today", {
+      method: "POST",
+      body: JSON.stringify({
+        serviceDate: scheduleDateInput.value,
+        plateId: scheduleSelect.value || null,
+      }),
+    });
+    await loadDashboard();
+    setStatus(
+      scheduleSelect.value
+        ? `${result.today.plate.name} planned for ${formatServiceDate(result.today.serviceDate)}.`
+        : `No plate planned for ${formatServiceDate(result.serviceDate)}.`,
+      "success",
+    );
+  } catch (error) {
+    setStatus(`Could not save ${formatServiceDate(scheduleDateInput.value)}. ${error.message}`, "error");
+  } finally {
+    endBusy(saveScheduleButton);
+  }
+});
 
 function resetForm() {
   plateForm.reset();
   plateIdInput.value = "";
+  selectedImageFile = null;
   savedImageUrl = null;
+  imageInput.value = "";
+  cameraImageInput.value = "";
   imageNote.textContent = "Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).";
   clearImagePreview();
   cancelEditButton.hidden = true;
-  document.querySelector("#editor-title").textContent = "Plate details";
+  plateEditorPanel.classList.remove("plate-editor-panel--editing");
+  plateEditorTitle.textContent = "Create plate";
 }
 
 function clearImagePreview() {
@@ -576,39 +832,54 @@ function showImagePreview(source, alt, isLocalPreview = false) {
 }
 
 function editPlate(plate) {
+  showDashboardView("plate-library-view");
   plateIdInput.value = plate.id;
   nameInput.value = plate.name;
   descriptionInput.value = plate.description;
   priceInput.value = (plate.priceCents / 100).toFixed(2);
+  selectedImageFile = null;
   imageInput.value = "";
+  cameraImageInput.value = "";
   savedImageUrl = plate.imageUrl;
   imageNote.textContent = savedImageUrl
     ? "Saved photo shown below. It will be kept unless you choose a replacement."
     : "No saved photo. Add one if you want a photo with this plate.";
   showImagePreview(savedImageUrl, `Saved photo of ${plate.name}`);
   cancelEditButton.hidden = false;
-  document.querySelector("#editor-title").textContent = `Edit ${plate.name}`;
-  nameInput.focus();
+  plateEditorPanel.classList.add("plate-editor-panel--editing");
+  plateEditorTitle.textContent = `Edit ${plate.name}`;
+  scrollToPlateEditor();
+  nameInput.focus({ preventScroll: true });
 }
 
-imageInput.addEventListener("change", () => {
-  const image = imageInput.files[0];
+function scrollToPlateEditor() {
+  const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+  plateEditorPanel.scrollIntoView({ behavior, block: "start" });
+}
+
+function clearImageFileInputs() {
+  imageInput.value = "";
+  cameraImageInput.value = "";
+}
+
+function handleImageSelection(sourceInput) {
+  const image = sourceInput.files[0];
   if (!image) {
-    showImagePreview(savedImageUrl, savedImageUrl ? "Saved plate photo" : "");
-    imageNote.textContent = savedImageUrl
-      ? "Saved photo will be kept. Choose another photo to replace it."
-      : "No photo selected. This plate will be saved without a photo.";
     return;
   }
   if (!SOURCE_IMAGE_TYPES.has(image.type.toLowerCase())) {
-    imageInput.value = "";
+    selectedImageFile = null;
+    clearImageFileInputs();
     showImagePreview(savedImageUrl, savedImageUrl ? "Saved plate photo" : "");
     imageNote.textContent = "Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).";
     setStatus("Choose a photo such as JPEG, PNG, WebP, or HEIC.", "error");
     return;
   }
   if (image.size < 1) {
-    imageInput.value = "";
+    selectedImageFile = null;
+    clearImageFileInputs();
     showImagePreview(savedImageUrl, savedImageUrl ? "Saved plate photo" : "");
     imageNote.textContent = "Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).";
     setStatus("The selected photo is empty. Choose another photo.", "error");
@@ -617,14 +888,20 @@ imageInput.addEventListener("change", () => {
   if (previewObjectUrl) {
     URL.revokeObjectURL(previewObjectUrl);
   }
+  selectedImageFile = image;
+  clearImageFileInputs();
   const localPreviewUrl = URL.createObjectURL(image);
   showImagePreview(localPreviewUrl, `Selected photo: ${image.name}`, true);
   imageNote.textContent = `Ready to upload: ${image.name}. Save the plate to resize and apply this photo.`;
   setStatus("");
-});
+}
+
+imageInput.addEventListener("change", () => handleImageSelection(imageInput));
+cameraImageInput.addEventListener("change", () => handleImageSelection(cameraImageInput));
 
 clearImageButton.addEventListener("click", () => {
-  imageInput.value = "";
+  selectedImageFile = null;
+  clearImageFileInputs();
   showImagePreview(savedImageUrl, savedImageUrl ? "Saved plate photo" : "");
   imageNote.textContent = savedImageUrl
     ? "Saved photo will be kept. Choose another photo to replace it."
@@ -633,7 +910,7 @@ clearImageButton.addEventListener("click", () => {
 });
 
 async function uploadSelectedImage() {
-  const image = imageInput.files[0];
+  const image = selectedImageFile;
   if (!image) {
     return savedImageUrl;
   }
@@ -713,7 +990,7 @@ async function normalizeImage(file) {
 }
 
 async function deletePlate(plate) {
-  if (!window.confirm(`Delete “${plate.name}”? Saved history will prevent deletion.`)) {
+  if (!window.confirm(`Delete “${plate.name}” from the plate library? Past history will be kept.`)) {
     return;
   }
   const deleteButton = document.querySelector(`[aria-label="Delete ${plate.name}"]`);
@@ -725,11 +1002,7 @@ async function deletePlate(plate) {
     await apiRequest(`/api/admin/plates/${encodeURIComponent(plate.id)}`, {
       method: "DELETE",
     });
-    plates = plates.filter((item) => item.id !== plate.id);
-    if (todayPlateId === plate.id) {
-      todayPlateId = null;
-    }
-    renderPlateList();
+    await loadDashboard();
     setStatus("Plate deleted.", "success");
   } catch (error) {
     setStatus(error.message, "error");
@@ -928,11 +1201,79 @@ setTodayButton.addEventListener("click", async () => {
 });
 
 todaySelect.addEventListener("change", updateTodaySummary);
+for (const input of [todayPlateSearch, planPlateSearch, libraryPlateSearch]) {
+  input.addEventListener("input", () => {
+    renderPlateList(true);
+    renderWeeklyPlan(true);
+  });
+}
+historySearchInput.addEventListener("input", renderHistory);
+historyEventFilter.addEventListener("change", renderHistory);
+historyRetryButton.addEventListener("click", () => loadHistory());
+historyLoadMoreButton.addEventListener("click", () =>
+  loadHistory(historyNextBefore, true)
+);
 newPlateButton.addEventListener("click", () => {
   resetForm();
+  scrollToPlateEditor();
   nameInput.focus();
 });
 cancelEditButton.addEventListener("click", resetForm);
+
+averagePriceButton.addEventListener("click", () => {
+  if (plates.length === 0) {
+    setStatus("Save a plate first to calculate its average price.", "info");
+    return;
+  }
+  const averagePrice = Math.round(
+    plates.reduce((total, plate) => total + plate.priceCents, 0) /
+      plates.length /
+      100,
+  );
+  priceInput.value = String(averagePrice);
+  priceInput.focus();
+});
+
+clearTodayButton.addEventListener("click", async () => {
+  if (!beginBusy(clearTodayButton, "Clearing…")) {
+    return;
+  }
+  setStatus("Clearing today’s plate…");
+  try {
+    await apiRequest("/api/admin/plates/today", {
+      method: "POST",
+      body: JSON.stringify({ plateId: null }),
+    });
+    todayPlateId = null;
+    todaySelect.value = "";
+    updateTodaySummary();
+    const refreshed = await loadDashboard();
+    todaySelect.focus();
+    if (!refreshed) {
+      setStatus("Today’s plate was cleared, but the admin view could not be refreshed. Please reload.", "warning");
+      return;
+    }
+    setStatus("Today’s plate has been cleared.", "success");
+  } catch (error) {
+    setStatus(`Today’s plate could not be cleared. ${error.message}`, "error");
+  } finally {
+    endBusy(clearTodayButton);
+  }
+});
+
+for (const [viewId, link] of Object.entries(dashboardNavigation)) {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    window.location.hash = `#${viewId}`;
+    showDashboardView(viewId);
+  });
+}
+
+window.addEventListener("hashchange", () => {
+  if (!dashboard.hidden) {
+    showDashboardView(window.location.hash.slice(1));
+  }
+});
 
 async function initialize() {
   document.querySelector("#email").value = "corne.dawson@gmail.com";

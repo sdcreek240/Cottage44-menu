@@ -98,10 +98,15 @@ export async function handleTodayAdminRequest(
   const { context } = result;
 
   if (request.method === "GET") {
+    const todayDate = getBusinessDate(now);
+    const latestDate = new Date(
+      Date.parse(`${todayDate}T00:00:00.000Z`) + 365 * 24 * 60 * 60 * 1000,
+    ).toISOString().slice(0, 10);
     const query = new URLSearchParams({
       select: "service_date,plate:plates(id,name,description,price_cents,image_url)",
       order: "service_date.desc",
-      limit: "365",
+      limit: "366",
+      and: `(service_date.gte.${todayDate},service_date.lte.${latestDate})`,
     });
     const response = await adminSupabaseFetch(
       context,
@@ -111,7 +116,7 @@ export async function handleTodayAdminRequest(
     );
     if (!response?.ok) {
       return withCookie(
-        adminFailure(dependencies.logger ?? console, "Daily plate history request failed."),
+        adminFailure(dependencies.logger ?? console, "Upcoming plate schedule request failed."),
         context.cookie,
       );
     }
@@ -123,21 +128,20 @@ export async function handleTodayAdminRequest(
     }
     if (
       !Array.isArray(rows) ||
-      rows.length > 365 ||
+      rows.length > 366 ||
       !rows.every((row) => validDailyPlate(row, context.config))
     ) {
       return withCookie(
-        adminFailure(dependencies.logger ?? console, "Daily plate history response was invalid."),
+        adminFailure(dependencies.logger ?? console, "Upcoming plate schedule response was invalid."),
         context.cookie,
       );
     }
-    const todayDate = getBusinessDate(now);
-    const history = rows.map(mapDailyPlate);
+    const upcoming = rows.map(mapDailyPlate);
     return withCookie(
       jsonResponse({
         serviceDate: todayDate,
-        today: history.find((item) => item.serviceDate === todayDate)?.plate ?? null,
-        history,
+        today: upcoming.find((item) => item.serviceDate === todayDate)?.plate ?? null,
+        upcoming,
       }),
       context.cookie,
     );

@@ -56,7 +56,9 @@ export async function handlePlateRequest(
     if (!response?.ok) {
       if (response?.status === 409) {
         return withCookie(
-          jsonResponse({ error: "This plate is in the saved history and cannot be deleted." }, 409),
+          jsonResponse({
+            error: "This plate is assigned for today or a future date. Change that plan before deleting it.",
+          }, 409),
           context.cookie,
         );
       }

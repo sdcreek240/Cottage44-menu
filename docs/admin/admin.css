@@ -106,6 +106,16 @@ main {
   box-shadow: 0 12px 35px rgb(43 53 42 / 6%);
 }
 
+.plate-editor-panel {
+  scroll-margin-top: 1rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.plate-editor-panel--editing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .collapsible {
   padding: 0;
   overflow: hidden;
@@ -201,9 +211,18 @@ h3 {
 }
 
 .dashboard-intro,
-#plate-library,
-#history {
+.dashboard-view {
   grid-column: 1 / -1;
+}
+
+.dashboard-view[hidden] {
+  display: none;
+}
+
+.today-plan-view {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.35rem;
 }
 
 .dashboard-intro {
@@ -240,17 +259,14 @@ h3 {
   text-decoration: none;
 }
 
-.dashboard-nav a:hover {
+.dashboard-nav a:hover,
+.dashboard-nav a[aria-current="page"] {
   border-color: var(--accent);
   color: var(--accent);
 }
 
 .dashboard-section {
   min-width: 0;
-  scroll-margin-top: 1rem;
-}
-
-#plate-library {
   scroll-margin-top: 1rem;
 }
 
@@ -314,6 +330,19 @@ select {
   border-radius: 0.45rem;
   background: var(--page);
   color: var(--ink);
+  font-size: 1rem;
+}
+
+.price-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.price-input-row .button {
+  min-height: 2.8rem;
+  white-space: nowrap;
 }
 
 .password-field {
@@ -416,27 +445,101 @@ a:focus-visible {
   gap: 0.35rem;
   grid-template-columns: minmax(8rem, 0.8fr) minmax(10rem, 1fr) auto;
   align-items: end;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--surface);
 }
 
 .weekly-plan-row label {
   font-weight: 700;
 }
 
+.conditional-search {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.conditional-search label,
+.history-controls label {
+  margin-top: 0;
+}
+
+.date-format-hint {
+  margin-top: 0.35rem;
+}
+
+.history-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.38fr);
+  gap: 0.8rem;
+  margin: 1rem 0;
+}
+
+.history-controls > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.history-item {
+  align-items: flex-start;
+}
+
+.history-item__details {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.history-item__type {
+  width: fit-content;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.history-item__type--assignment {
+  border-color: var(--status-success);
+  color: var(--status-success);
+}
+
+.history-item__type--plan {
+  border-color: var(--status-info);
+  color: var(--status-info);
+}
+
+.history-item__type--library {
+  border-color: var(--status-warning);
+  color: var(--status-warning);
+}
+
+.history-item__date,
+.history-item__snapshot,
+.history-item__recorded {
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 42rem) {
-  .weekly-plan-row {
+  .weekly-plan-row,
+  .price-input-row,
+  .history-controls {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 54rem) {
   .admin-dashboard,
-  .library-grid {
+  .library-grid,
+  .today-plan-view {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-intro,
-  #plate-library,
-  #history {
+  .dashboard-intro {
     grid-column: auto;
   }
 }
@@ -613,8 +716,19 @@ a:focus-visible {
     flex-direction: column;
   }
 
+  .dashboard-nav a {
+    flex: 1 1 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
   .plate-item__actions {
     flex-wrap: wrap;
+  }
+
+  .plate-item__actions .button {
+    flex: 1 1 7rem;
+    min-height: 2.8rem;
   }
 }
 
