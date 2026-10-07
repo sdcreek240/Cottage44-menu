@@ -98,6 +98,51 @@ test("uses the exact Cottage 44 red accent in admin light and dark themes", () =
   }
 });
 
+test("admin dashboard navigation targets clearly grouped, accessible sections", () => {
+  const ids = [...adminHtml.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => id);
+  assert.equal(new Set(ids).size, ids.length, "admin page IDs are unique");
+  for (const selector of adminSelectors) {
+    assert.ok(ids.includes(selector.slice(1)), `${selector} remains available to admin.js`);
+  }
+
+  const navigation = adminHtml.match(
+    /<nav class="dashboard-nav" aria-label="([^"]+)">([\s\S]*?)<\/nav>/,
+  );
+  assert.ok(navigation, "dashboard has an explicitly labelled section navigation");
+  assert.equal(navigation[1], "Admin sections");
+  const targets = [...navigation[2].matchAll(/href="#([^"]+)"/g)].map(([, id]) => id);
+  assert.deepEqual(targets, ["today", "planning", "plate-library", "history"]);
+  for (const target of targets) {
+    assert.ok(ids.includes(target), `navigation target #${target} exists`);
+  }
+
+  assert.match(adminHtml, /<h1>Manage the menu<\/h1>/);
+  assert.match(adminHtml, /<h2 id="today-title">Today’s plate/);
+  const today = adminHtml.indexOf('id="today"');
+  const planning = adminHtml.indexOf('id="planning"');
+  const library = adminHtml.indexOf('id="plate-library"');
+  const history = adminHtml.indexOf('id="history"');
+  assert.ok(today < adminHtml.indexOf('id="today-select"'));
+  assert.ok(adminHtml.indexOf('id="set-today"') < planning);
+  assert.ok(planning < adminHtml.indexOf('id="schedule-date"'));
+  assert.ok(adminHtml.indexOf('id="weekly-plan-list"') < library);
+  assert.ok(library < adminHtml.indexOf('id="plate-form"'));
+  assert.ok(adminHtml.indexOf('id="plate-list"') < history);
+  assert.ok(history < adminHtml.indexOf('id="history-list"'));
+});
+
+test("admin dashboard layout switches from grouped desktop columns to a narrow single column", () => {
+  assert.match(adminCss, /main\s*\{[\s\S]*?width:\s*min\(100% - 2rem,\s*1120px\)/);
+  assert.match(adminCss, /\.admin-dashboard\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(adminCss, /\.library-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(
+    adminCss,
+    /@media \(max-width:\s*54rem\)\s*\{[\s\S]*?\.admin-dashboard,\s*\.library-grid\s*\{[\s\S]*?grid-template-columns:\s*1fr/,
+  );
+  assert.match(adminCss, /\.dashboard-nav\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(adminCss, /\.dashboard-section\s*\{[\s\S]*?scroll-margin-top:/);
+});
+
 class Element {
   constructor() {
     this.children = [];

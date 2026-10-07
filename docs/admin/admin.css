@@ -65,7 +65,7 @@ textarea {
   min-height: 4.5rem;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem max(1rem, calc((100vw - 880px) / 2));
+  padding: 0.75rem max(1rem, calc((100vw - 1120px) / 2));
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
@@ -92,12 +92,13 @@ textarea {
 
 main {
   display: grid;
-  width: min(100% - 2rem, 880px);
+  width: min(100% - 2rem, 1120px);
   gap: 1.35rem;
   margin: 2rem auto 4rem;
 }
 
 .panel {
+  min-width: 0;
   padding: clamp(1.1rem, 4vw, 1.7rem);
   border: 1px solid var(--line);
   border-radius: 0.9rem;
@@ -155,12 +156,14 @@ main {
 
 h1,
 h2,
+h3,
 p {
   margin-top: 0;
 }
 
 h1,
-h2 {
+h2,
+h3 {
   margin-bottom: 0.6rem;
   line-height: 1.2;
 }
@@ -173,6 +176,10 @@ h2 {
   font-size: 1.25rem;
 }
 
+h3 {
+  font-size: 1.05rem;
+}
+
 .section-heading {
   display: flex;
   align-items: center;
@@ -182,8 +189,84 @@ h2 {
 }
 
 .section-heading h1,
-.section-heading h2 {
+.section-heading h2,
+.section-heading h3 {
   margin-bottom: 0;
+}
+
+.admin-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.35rem;
+}
+
+.dashboard-intro,
+#plate-library,
+#history {
+  grid-column: 1 / -1;
+}
+
+.dashboard-intro {
+  display: grid;
+  gap: 1.1rem;
+  padding: 0.2rem 0 0.3rem;
+}
+
+.dashboard-intro h1 {
+  margin-bottom: 0.45rem;
+}
+
+.dashboard-intro > div > .muted {
+  max-width: 48rem;
+}
+
+.dashboard-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.dashboard-nav a {
+  display: inline-flex;
+  min-height: 2.6rem;
+  align-items: center;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.dashboard-nav a:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.dashboard-section {
+  min-width: 0;
+  scroll-margin-top: 1rem;
+}
+
+#plate-library {
+  scroll-margin-top: 1rem;
+}
+
+.group-heading {
+  margin-bottom: 0.9rem;
+}
+
+.group-heading h2 {
+  margin-bottom: 0.4rem;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 1.1rem;
 }
 
 .eyebrow {
@@ -342,6 +425,19 @@ a:focus-visible {
 @media (max-width: 42rem) {
   .weekly-plan-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 54rem) {
+  .admin-dashboard,
+  .library-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-intro,
+  #plate-library,
+  #history {
+    grid-column: auto;
   }
 }
 
