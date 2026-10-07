@@ -179,20 +179,24 @@ or static-only deployment statuses.
 
 The existing `.github/workflows/ci.yml` detects migration changes on pushes to
 `dev` or `main` after the `checks` job passes. Only when files under
-`supabase/migrations/` changed, the `Apply Supabase migrations` job uses the
-`Cottage44_menu` GitHub environment and Supabase CLI to link the configured
-project and run `supabase db push --linked --yes`. The CLI applies only
-migrations missing from that project's migration history. Existing CI check names and the Cloudflare deployment configuration are kept
-consistent with the current Pages architecture.
+`supabase/migrations/` changed, the `Apply Supabase migrations` job uses
+`Cottage44_menu_preview` for `dev` and `Cottage44_menu` for `main`. Each
+environment must point to its own Supabase project; a `dev` push must never
+use production credentials. The CLI applies only migrations missing from that
+project's migration history. Existing CI check names and the Cloudflare
+deployment configuration are kept consistent with the current Pages
+architecture.
 
-Before the first migration-triggering push, configure the existing GitHub
-environment at **Settings → Environments → Cottage44_menu**:
+Before the first migration-triggering push, configure both GitHub environments
+at **Settings → Environments**. `Cottage44_menu_preview` must contain the
+non-production Supabase project settings used by `dev`; `Cottage44_menu` must
+contain the production settings used by `main`. Each environment needs:
 
 | Kind | Name | Value |
 | --- | --- | --- |
-| Environment secret | `SUPABASE_ACCESS_TOKEN` | A Supabase personal access token |
-| Environment secret | `SUPABASE_DB_PASSWORD` | The database password for the intended Supabase project |
-| Environment variable | `SUPABASE_PROJECT_REF` | The project reference from that project's Supabase dashboard URL |
+| Environment secret | `SUPABASE_ACCESS_TOKEN` | A Supabase personal access token for that environment's project |
+| Environment secret | `SUPABASE_DB_PASSWORD` | The database password for that environment's project |
+| Environment variable | `SUPABASE_PROJECT_REF` | The project reference from that environment's Supabase dashboard URL |
 
 The project ref is an identifier, not a credential. Do not put any of these
 values in repository files, workflow YAML, or command output. The secrets and
@@ -233,8 +237,8 @@ publishable key, or dashboard login password is not a database password.
 Until `supabase db push` completes successfully, the future-planning policies
 are not confirmed as applied and the release must remain blocked.
 
-For the one-time repair, use **Actions → Repair Supabase migration history →
-Run workflow**, select the `dev` branch, and enter exactly
+For the one-time production repair, use **Actions → Repair Supabase migration
+history → Run workflow**, select the `main` branch, and enter exactly
 `REPAIR_EXISTING_MIGRATIONS`. The workflow is gated by that confirmation,
 uses the `Cottage44_menu` environment, reconciles only migration versions
 `20261007100000` and `20261007110000`, and then runs
@@ -243,11 +247,11 @@ project reference to be entered in the form. A wrong confirmation value
 causes the repair job to be skipped.
 
 Supabase may not know about SQL run directly in its SQL editor. Before
-automation is used, verify in that exact project that both schemas and policies
-from the migrations are already present, then run this one-time history
-reconciliation from the repository root. It records the two known migrations
-as applied; it does not execute or validate their SQL. Do not run it against a
-different or empty project.
+automation is used, verify in the production project that both schemas and
+policies from the migrations are already present, then run this one-time
+history reconciliation from the repository root. It records the two known
+migrations as applied; it does not execute or validate their SQL. Do not run it
+against a different or empty project.
 
 ```sh
 read -rsp "Supabase access token: " SUPABASE_ACCESS_TOKEN
@@ -272,9 +276,10 @@ unset SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF
 The migration versions correspond to
 `20261007100000_create_plates_and_daily_plates.sql` and
 `20261007110000_add_owner_admin_and_plate_images.sql`. The `.temp` CLI link
-state is ignored by Git. After reconciliation, pushes containing new migration
-files to either branch automatically apply pending migrations to the configured
-project. Add future schema changes as new, timestamped SQL migration files;
+state is ignored by Git. After reconciliation, pushes containing new migration files to `main`
+automatically apply pending migrations to the production project. The preview
+project must be initialized separately through the `dev` environment. Add
+future schema changes as new, timestamped SQL migration files;
 editing an already-applied migration does not reapply it to the database.
 
 ## Environment and secrets

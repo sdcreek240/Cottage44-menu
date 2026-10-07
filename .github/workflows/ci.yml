@@ -88,7 +88,8 @@ jobs:
     if: needs.migration_changes.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: Cottage44_menu
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'Cottage44_menu' || 'Cottage44_menu_preview' }}
     concurrency:
       group: supabase-migrations-${{ github.repository }}
       cancel-in-progress: false
@@ -112,7 +113,7 @@ jobs:
           set -euo pipefail
 
           if [[ -z "$SUPABASE_ACCESS_TOKEN" || -z "$SUPABASE_DB_PASSWORD" || -z "$SUPABASE_PROJECT_REF" ]]; then
-            echo "::error::Configure SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD as Cottage44_menu environment secrets, and SUPABASE_PROJECT_REF as an environment variable."
+            echo "::error::Configure SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD, plus SUPABASE_PROJECT_REF, in the branch-specific Supabase environment."
             exit 1
           fi
 

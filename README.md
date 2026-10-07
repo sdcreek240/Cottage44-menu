@@ -82,10 +82,12 @@ Each successful deployment is linked at
 ## Supabase migrations
 
 After CI passes on a push to `dev` or `main`, changes under
-`supabase/migrations/` automatically apply pending migrations to the configured
-Supabase project. Before the first such push, configure the GitHub environment
-secrets and project-ref variable, then reconcile the history for the two
-migrations that were already applied manually. See
+`supabase/migrations/` automatically apply pending migrations. `dev` uses the
+separate `Cottage44_menu_preview` GitHub environment and preview Supabase
+project; `main` uses the production `Cottage44_menu` environment. Before the
+first such push, configure both environments' secrets and project-ref
+variables, then reconcile the production history for the two migrations that
+were already applied manually. See
 [the migration automation setup](docs/architecture.md#automated-supabase-migrations)
 for the exact one-time steps.
 

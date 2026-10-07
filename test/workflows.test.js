@@ -27,6 +27,17 @@ test("CI is limited to the integration branches", () => {
   assert.match(ciWorkflow, /push:\s+branches:\s+- dev\s+- main/s);
 });
 
+test("Supabase migrations use a preview project on dev and production only on main", () => {
+  assert.match(
+    ciWorkflow,
+    /github\.ref == 'refs\/heads\/main' && 'Cottage44_menu' \|\| 'Cottage44_menu_preview'/,
+  );
+  assert.match(
+    ciWorkflow,
+    /branch-specific Supabase environment/,
+  );
+});
+
 test("production release PRs must originate from dev", () => {
   assert.match(
     branchPolicyWorkflow,
