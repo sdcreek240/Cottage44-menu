@@ -152,3 +152,20 @@ test("production smoke tests wait for the Cloudflare deployment and verify the l
   assert.match(productionSmokeWorkflow, /Cottage 44/);
   assert.match(productionSmokeWorkflow, /exit 1/);
 });
+
+test("production smoke tests today's public plates endpoint and its nullable response shape", () => {
+  assert.match(productionSmokeWorkflow, /PRODUCTION_URL\}\/api\/plates\/today/);
+  assert.match(
+    productionSmokeWorkflow,
+    /plates_status="\$\(curl[\s\S]*?--output \/tmp\/production-plates-today\.json[\s\S]*?--write-out '%\{http_code\}'[\s\S]*?\)"/,
+  );
+  assert.match(productionSmokeWorkflow, /if \[\[ "\$plates_status" != "200" \]\]/);
+  assert.match(
+    productionSmokeWorkflow,
+    /jq -e 'type == "object" and has\("plate"\) and has\("nextPlate"\)'/,
+  );
+  assert.doesNotMatch(
+    productionSmokeWorkflow,
+    /jq -e '[^'\n]*(?:\.plate|\.nextPlate)\s*!=\s*null/,
+  );
+});
