@@ -1147,6 +1147,33 @@ test("history rejects invalid cursors and invalid snapshots without exposing dat
   assert.equal(queriedHistory, false);
 });
 
+test("history rejects malformed rows and non-GET methods", async () => {
+  let fetchCalls = 0;
+  const wrongMethod = await handleHistoryRequest(
+    new Request("https://menu.example/api/admin/history", { method: "POST" }),
+    env,
+    { fetchImpl: async () => { fetchCalls += 1; return jsonResponse([]); } },
+  );
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(fetchCalls, 0);
+
+  const malformed = await handleHistoryRequest(
+    sessionRequest(false, "https://menu.example/api/admin/history"),
+    env,
+    {
+      logger: { error() {} },
+      fetchImpl: async (input) => {
+        fetchCalls += 1;
+        return String(input).endsWith("/auth/v1/user")
+          ? jsonResponse({ email: OWNER_EMAIL })
+          : jsonResponse([null]);
+      },
+    },
+  );
+  assert.equal(malformed.status, 502);
+  assert.equal(fetchCalls, 2);
+});
+
 test("history pages return a stable cursor without dropping older events", async () => {
   const request = sessionRequest(false, "https://menu.example/api/admin/history");
   const response = await handleHistoryRequest(request, env, {
@@ -1174,6 +1201,69 @@ test("history pages return a stable cursor without dropping older events", async
   assert.equal(body.events.length, 100);
   assert.equal(body.hasMore, true);
   assert.equal(body.nextBefore, 2);
+});
+
+test("history validates before and after snapshots for changes, clears, and plate deletion", async () => {
+  const request = sessionRequest(false, "https://menu.example/api/admin/history");
+  const plateA = {
+    id: "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0",
+    name: "Plate A",
+    description: "First",
+    price_cents: 12500,
+    image_url: null,
+  };
+  const plateB = {
+    ...plateA,
+    id: "123e4567-e89b-42d3-a456-426614174000",
+    name: "Plate B",
+  };
+  const response = await handleHistoryRequest(request, env, {
+    fetchImpl: async (input) => {
+      if (String(input).endsWith("/auth/v1/user")) {
+        return jsonResponse({ email: OWNER_EMAIL });
+      }
+      return jsonResponse([
+        {
+          id: 3,
+          service_date: "2026-09-07",
+          event_type: "changed",
+          previous_plate: plateA,
+          current_plate: plateB,
+          occurred_at: "2026-09-07T10:00:00.000Z",
+        },
+        {
+          id: 2,
+          service_date: "2026-09-07",
+          event_type: "cleared",
+          previous_plate: plateB,
+          current_plate: null,
+          occurred_at: "2026-09-07T09:00:00.000Z",
+        },
+        {
+          id: 1,
+          service_date: "2026-09-07",
+          event_type: "plate_deleted",
+          previous_plate: plateA,
+          current_plate: null,
+          occurred_at: "2026-09-07T08:00:00.000Z",
+        },
+      ]);
+    },
+  });
+  const body = await response.json();
+  assert.deepEqual(
+    body.events.map((event: { eventType: string }) => event.eventType),
+    ["changed", "cleared", "plate_deleted"],
+  );
+  assert.deepEqual(
+    body.events[0].previousPlate.name,
+    "Plate A",
+  );
+  assert.deepEqual(
+    body.events[0].currentPlate.name,
+    "Plate B",
+  );
+  assert.equal(body.events[1].currentPlate, null);
 });
 
 test("schedule GET returns only today and future assignments", async () => {
