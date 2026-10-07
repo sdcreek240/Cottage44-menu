@@ -1,6 +1,7 @@
 "use strict";
 
 const statusElement = document.querySelector("#status");
+const statusIcon = document.querySelector("#status-icon");
 const statusMessage = document.querySelector("#status-message");
 const statusCloseButton = document.querySelector("#status-close");
 const signInSubmit = document.querySelector("#sign-in-submit");
@@ -63,18 +64,31 @@ const SOURCE_IMAGE_TYPES = new Set([
   "image/heif",
 ]);
 
-function setStatus(message, kind = "") {
+function setStatus(message, kind = "info") {
   const text = typeof message === "string"
     ? message
     : "The request could not be completed. Please try again.";
+  const statusKind = ["success", "error", "info", "warning"].includes(kind)
+    ? kind
+    : "info";
+  const icons = {
+    success: "✓",
+    error: "×",
+    info: "i",
+    warning: "!",
+  };
   if (statusTimer !== null) {
     clearTimeout(statusTimer);
     statusTimer = null;
   }
   statusMessage.textContent = text;
-  statusElement.dataset.kind = kind;
+  statusIcon.textContent = text ? icons[statusKind] : "";
+  statusElement.dataset.kind = text ? statusKind : "";
   statusElement.hidden = !text;
-  statusElement.setAttribute("aria-live", kind === "error" ? "assertive" : "polite");
+  statusElement.setAttribute(
+    "aria-live",
+    statusKind === "error" || statusKind === "warning" ? "assertive" : "polite",
+  );
   if (text && typeof setTimeout === "function") {
     statusTimer = setTimeout(() => {
       dismissStatus();
@@ -87,6 +101,7 @@ function dismissStatus() {
     clearTimeout(statusTimer);
     statusTimer = null;
   }
+  statusIcon.textContent = "";
   statusMessage.textContent = "";
   statusElement.hidden = true;
 }
@@ -265,7 +280,7 @@ function renderPlateList() {
   scheduleSelect.replaceChildren();
   const schedulePlaceholder = document.createElement("option");
   schedulePlaceholder.value = "";
-  schedulePlaceholder.textContent = plates.length ? "Select a saved plate" : "Save a plate first";
+  schedulePlaceholder.textContent = "Not planned";
   scheduleSelect.append(schedulePlaceholder);
   for (const plate of plates) {
     const option = document.createElement("option");
@@ -281,7 +296,15 @@ function updateScheduleSummary() {
   const selected = plates.find((plate) => plate.id === scheduleSelect.value);
   scheduleSummary.textContent = selected && scheduleDateInput.value
     ? `${selected.name} is ready to be planned for ${scheduleDateInput.value}.`
-    : "Choose a date and saved plate.";
+    : scheduleDateInput.value
+    ? `No plate is planned for ${scheduleDateInput.value}.`
+    : "Choose a date.";
+}
+
+function selectScheduledPlate() {
+  const scheduled = history.find((item) => item.serviceDate === scheduleDateInput.value);
+  scheduleSelect.value = scheduled?.plate.id ?? "";
+  updateScheduleSummary();
 }
 
 function planningWeekdays(startDate) {
@@ -332,9 +355,7 @@ function renderWeeklyPlan() {
       select.append(option);
     }
     const existing = assignments.get(date);
-    if (existing) {
-      select.value = existing.id;
-    }
+    select.value = existing?.id ?? "";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "button button--secondary";
@@ -343,19 +364,23 @@ function renderWeeklyPlan() {
       if (!beginBusy(button, "Saving…")) {
         return;
       }
-      if (!select.value) {
-        setStatus("Choose a saved plate for this day first.", "error");
-        endBusy(button);
-        return;
-      }
-      setStatus(`Saving the plate for ${label.textContent}…`);
+      setStatus(
+        select.value
+          ? `Saving the plate for ${label.textContent}…`
+          : `Marking ${label.textContent} as not planned…`,
+      );
       try {
         const result = await apiRequest("/api/admin/plates/today", {
           method: "POST",
-          body: JSON.stringify({ serviceDate: date, plateId: select.value }),
+          body: JSON.stringify({ serviceDate: date, plateId: select.value || null }),
         });
         await loadDashboard();
-        setStatus(`${result.today.plate.name} planned for ${date}.`, "success");
+        setStatus(
+          select.value
+            ? `${result.today.plate.name} planned for ${date}.`
+            : `No plate planned for ${date}.`,
+          "success",
+        );
       } catch (error) {
         setStatus(`Could not save ${label.textContent}. ${error.message}`, "error");
       } finally {
@@ -406,34 +431,42 @@ async function loadDashboard() {
     renderPlateList();
     renderWeeklyPlan();
     renderHistory();
+    selectScheduledPlate();
     setStatus("");
   } catch (error) {
     setStatus(error.message, "error");
   }
 
-  scheduleDateInput.addEventListener("change", updateScheduleSummary);
+  scheduleDateInput.addEventListener("change", selectScheduledPlate);
   scheduleSelect.addEventListener("change", updateScheduleSummary);
 
   saveScheduleButton.addEventListener("click", async () => {
     if (!beginBusy(saveScheduleButton, "Saving…")) {
       return;
     }
-    if (!scheduleDateInput.value || !scheduleSelect.value) {
-      setStatus("Choose a date and saved plate first.", "error");
+    if (!scheduleDateInput.value) {
+      setStatus("Choose a date first.", "error");
       endBusy(saveScheduleButton);
       return;
     }
-    setStatus("Saving the planned plate…");
+    setStatus(
+      scheduleSelect.value ? "Saving the planned plate…" : "Marking the day as not planned…",
+    );
     try {
       const result = await apiRequest("/api/admin/plates/today", {
         method: "POST",
         body: JSON.stringify({
           serviceDate: scheduleDateInput.value,
-          plateId: scheduleSelect.value,
+          plateId: scheduleSelect.value || null,
         }),
       });
       await loadDashboard();
-      setStatus(`${result.today.plate.name} planned for ${result.today.serviceDate}.`, "success");
+      setStatus(
+        scheduleSelect.value
+          ? `${result.today.plate.name} planned for ${result.today.serviceDate}.`
+          : `No plate planned for ${result.serviceDate}.`,
+        "success",
+      );
     } catch (error) {
       setStatus(`Could not save ${scheduleDateInput.value}. ${error.message}`, "error");
     } finally {

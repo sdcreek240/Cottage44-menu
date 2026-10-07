@@ -6,6 +6,10 @@
   --muted: #c0b8b8;
   --line: #443d3e;
   --accent: #C12025;
+  --status-error: #ff8589;
+  --status-success: #73c995;
+  --status-info: #83b8ff;
+  --status-warning: #f2bd62;
   font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--page);
@@ -19,6 +23,10 @@
   --muted: #6b6566;
   --line: #e5e1d6;
   --accent: #C12025;
+  --status-error: #a51d24;
+  --status-success: #176b3b;
+  --status-info: #245e9a;
+  --status-warning: #8a5600;
 }
 
 * {
@@ -356,6 +364,27 @@ a:focus-visible {
   gap: 0.8rem;
 }
 
+.status__content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.status__icon {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 14%, var(--surface));
+  color: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .status__close {
   flex: 0 0 auto;
   min-width: 2rem;
@@ -377,14 +406,28 @@ a:focus-visible {
 }
 
 .status[data-kind="error"] {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 650;
+  border: 2px solid var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 14%, var(--surface));
+  color: var(--status-error);
+  font-weight: 700;
 }
 
 .status[data-kind="success"] {
-  border-color: #73c995;
-  color: #73c995;
+  border-color: var(--status-success);
+  background: color-mix(in srgb, var(--status-success) 10%, var(--surface));
+  color: var(--status-success);
+  font-weight: 650;
+}
+
+.status[data-kind="info"] {
+  border-color: var(--status-info);
+  color: var(--status-info);
+}
+
+.status[data-kind="warning"] {
+  border-color: var(--status-warning);
+  background: color-mix(in srgb, var(--status-warning) 10%, var(--surface));
+  color: var(--status-warning);
   font-weight: 650;
 }
 

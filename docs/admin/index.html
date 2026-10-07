@@ -26,7 +26,10 @@
     </header>
     <main id="main">
       <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true" hidden>
-        <span id="status-message"></span>
+        <span class="status__content">
+          <span id="status-icon" class="status__icon" aria-hidden="true"></span>
+          <span id="status-message"></span>
+        </span>
         <button id="status-close" class="status__close" type="button" aria-label="Close notification">×</button>
       </div>
       <section id="sign-in-panel" class="panel sign-in" aria-labelledby="sign-in-title">
