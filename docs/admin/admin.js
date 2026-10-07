@@ -22,6 +22,16 @@ const forgotPasswordButton = document.querySelector("#forgot-password");
 const backToSignInButton = document.querySelector("#back-to-sign-in");
 const backFromPasswordResetButton = document.querySelector("#back-from-password-reset");
 const dashboard = document.querySelector("#dashboard");
+const dashboardViews = {
+  "today-plan-view": document.querySelector("#today-plan-view"),
+  "plate-library-view": document.querySelector("#plate-library-view"),
+  "history-view": document.querySelector("#history-view"),
+};
+const dashboardNavigation = {
+  "today-plan-view": document.querySelector("#nav-today-plan"),
+  "plate-library-view": document.querySelector("#nav-plate-library"),
+  "history-view": document.querySelector("#nav-history"),
+};
 const signOutButton = document.querySelector("#sign-out");
 const plateForm = document.querySelector("#plate-form");
 const plateIdInput = document.querySelector("#plate-id");
@@ -282,9 +292,22 @@ function showSignedOut() {
   signInPanel.hidden = false;
 }
 
+function showDashboardView(viewId) {
+  const selectedView = dashboardViews[viewId] ? viewId : "today-plan-view";
+  for (const [id, view] of Object.entries(dashboardViews)) {
+    view.hidden = id !== selectedView;
+    if (id === selectedView) {
+      dashboardNavigation[id].setAttribute("aria-current", "page");
+    } else {
+      dashboardNavigation[id].removeAttribute("aria-current");
+    }
+  }
+}
+
 async function showDashboard() {
   signInPanel.hidden = true;
   dashboard.hidden = false;
+  showDashboardView(window.location.hash.slice(1));
   signOutButton.hidden = false;
   await loadDashboard();
 }
@@ -976,6 +999,20 @@ newPlateButton.addEventListener("click", () => {
   nameInput.focus();
 });
 cancelEditButton.addEventListener("click", resetForm);
+
+for (const [viewId, link] of Object.entries(dashboardNavigation)) {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    window.location.hash = `#${viewId}`;
+    showDashboardView(viewId);
+  });
+}
+
+window.addEventListener("hashchange", () => {
+  if (!dashboard.hidden) {
+    showDashboardView(window.location.hash.slice(1));
+  }
+});
 
 async function initialize() {
   document.querySelector("#email").value = "corne.dawson@gmail.com";

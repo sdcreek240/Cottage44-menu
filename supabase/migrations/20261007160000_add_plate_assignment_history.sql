@@ -79,8 +79,11 @@ begin
       end
       into previous_snapshot
       from public.plate_assignment_history
-      where current_plate ->> 'id' = old.plate_id::text
-        or previous_plate ->> 'id' = old.plate_id::text
+      where service_date = new.service_date
+        and (
+          current_plate ->> 'id' = old.plate_id::text
+          or previous_plate ->> 'id' = old.plate_id::text
+        )
       order by id desc
       limit 1;
       event_kind := 'plate_deleted';

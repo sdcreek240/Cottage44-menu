@@ -53,6 +53,14 @@ const adminSelectors = [
   "#new-password",
   "#confirm-password",
   "#dashboard",
+  "#today-plan-view",
+  "#plate-library-view",
+  "#history-view",
+  "#today",
+  "#planning",
+  "#nav-today-plan",
+  "#nav-plate-library",
+  "#nav-history",
   "#sign-out",
   "#plate-form",
   "#plate-id",
@@ -101,7 +109,7 @@ test("uses the exact Cottage 44 red accent in admin light and dark themes", () =
   }
 });
 
-test("admin dashboard navigation targets clearly grouped, accessible sections", () => {
+test("admin dashboard navigation exposes the three grouped views", () => {
   const ids = [...adminHtml.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => id);
   assert.equal(new Set(ids).size, ids.length, "admin page IDs are unique");
   for (const selector of adminSelectors) {
@@ -114,10 +122,10 @@ test("admin dashboard navigation targets clearly grouped, accessible sections", 
   assert.ok(navigation, "dashboard has an explicitly labelled section navigation");
   assert.equal(navigation[1], "Admin sections");
   const targets = [...navigation[2].matchAll(/href="#([^"]+)"/g)].map(([, id]) => id);
-  assert.deepEqual(targets, ["today", "planning", "plate-library", "history"]);
+  assert.deepEqual(targets, ["today-plan-view", "plate-library-view", "history-view"]);
   assert.deepEqual(
     [...navigation[2].matchAll(/>([^<]+)<\/a>/g)].map(([, label]) => label),
-    ["Today’s Plate", "Plan Ahead", "Plate Library", "History"],
+    ["Today’s Plate / Plan Ahead", "Plate Library / Saved Plates", "History"],
   );
   for (const target of targets) {
     assert.ok(ids.includes(target), `navigation target #${target} exists`);
@@ -125,16 +133,19 @@ test("admin dashboard navigation targets clearly grouped, accessible sections", 
 
   assert.match(adminHtml, /<h1>Manage the menu<\/h1>/);
   assert.match(adminHtml, /<h2 id="today-title">Today’s plate/);
+  const todayPlan = adminHtml.indexOf('id="today-plan-view"');
   const today = adminHtml.indexOf('id="today"');
   const planning = adminHtml.indexOf('id="planning"');
+  const libraryView = adminHtml.indexOf('id="plate-library-view"');
   const library = adminHtml.indexOf('id="plate-library"');
+  const historyView = adminHtml.indexOf('id="history-view"');
   const history = adminHtml.indexOf('id="history"');
+  assert.ok(todayPlan < today && today < planning && planning < libraryView);
+  assert.ok(libraryView < library && library < historyView);
+  assert.ok(historyView < history);
   assert.ok(today < adminHtml.indexOf('id="today-select"'));
-  assert.ok(adminHtml.indexOf('id="set-today"') < planning);
   assert.ok(planning < adminHtml.indexOf('id="schedule-date"'));
-  assert.ok(adminHtml.indexOf('id="weekly-plan-list"') < library);
   assert.ok(library < adminHtml.indexOf('id="plate-form"'));
-  assert.ok(adminHtml.indexOf('id="plate-list"') < history);
   assert.ok(history < adminHtml.indexOf('id="history-list"'));
   assert.match(adminHtml, /Past plate changes stay here, even if a plate is removed from your library/);
   assert.match(adminHtml, /id="history-state"[^>]*aria-live="polite"/);
@@ -146,10 +157,11 @@ test("admin dashboard layout switches from grouped desktop columns to a narrow s
   assert.match(adminCss, /\.library-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(
     adminCss,
-    /@media \(max-width:\s*54rem\)\s*\{[\s\S]*?\.admin-dashboard,\s*\.library-grid\s*\{[\s\S]*?grid-template-columns:\s*1fr/,
+    /@media \(max-width:\s*54rem\)\s*\{[\s\S]*?\.admin-dashboard,\s*\.library-grid,\s*\.today-plan-view\s*\{[\s\S]*?grid-template-columns:\s*1fr/,
   );
   assert.match(adminCss, /\.dashboard-nav\s*\{[\s\S]*?flex-wrap:\s*wrap/);
-  assert.match(adminCss, /\.dashboard-section\s*\{[\s\S]*?scroll-margin-top:/);
+  assert.match(adminCss, /\.dashboard-view\[hidden\]\s*\{[\s\S]*?display:\s*none/);
+  assert.match(adminCss, /\.today-plan-view\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/);
 });
 
 class Element {
@@ -247,6 +259,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   let failSignOut = false;
   let holdAssignment = false;
   let resolveAssignment;
+  const windowListeners = {};
   const imageUrl =
     "https://cottage44-test.supabase.co/storage/v1/object/public/cottage44-plates/123e4567-e89b-42d3-a456-426614174000.jpg";
 
@@ -511,8 +524,11 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     clearTimeout: (id) => timers.delete(id),
     window: {
       confirm: () => true,
-      location: { search: "", pathname: "/admin/" },
+      location: { search: "", pathname: "/admin/", hash: "" },
       history: { replaceState() {} },
+      addEventListener: (event, callback) => {
+        windowListeners[event] = callback;
+      },
       AudioContext: FakeAudioContext,
     },
     console,
@@ -562,6 +578,25 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   );
   assert.equal(JSON.parse(signInCall.options.body).rememberMe, true);
   assert.equal(elements["#dashboard"].hidden, false);
+  assert.equal(elements["#today-plan-view"].hidden, false);
+  assert.equal(elements["#plate-library-view"].hidden, true);
+  assert.equal(elements["#history-view"].hidden, true);
+  assert.equal(elements["#nav-today-plan"].getAttribute("aria-current"), "page");
+  elements["#nav-plate-library"].listeners.click({ preventDefault() {} });
+  assert.equal(elements["#today-plan-view"].hidden, true);
+  assert.equal(elements["#plate-library-view"].hidden, false);
+  assert.equal(elements["#history-view"].hidden, true);
+  assert.equal(elements["#nav-plate-library"].getAttribute("aria-current"), "page");
+  assert.equal(context.window.location.hash, "#plate-library-view");
+  elements["#nav-history"].listeners.click({ preventDefault() {} });
+  assert.equal(elements["#plate-library-view"].hidden, true);
+  assert.equal(elements["#history-view"].hidden, false);
+  assert.equal(elements["#nav-history"].getAttribute("aria-current"), "page");
+  context.window.location.hash = "#today-plan-view";
+  windowListeners.hashchange();
+  assert.equal(elements["#today-plan-view"].hidden, false);
+  assert.equal(elements["#planning"].hidden, false);
+  assert.equal(elements["#history-view"].hidden, true);
   assert.match(elements["#history-state"].textContent, /No history yet/);
   failHistory = true;
   await elements["#history-retry"].listeners.click();
@@ -866,8 +901,9 @@ test("admin UI converts HEIC and large camera photos before upload", async () =>
     }),
     URLSearchParams,
     window: {
-      location: { search: "", pathname: "/admin/" },
+      location: { search: "", pathname: "/admin/", hash: "" },
       history: { replaceState() {} },
+      addEventListener() {},
     },
     console,
   });
@@ -931,8 +967,9 @@ test("recovery UI displays nested API errors as human-readable messages", async 
     },
     URLSearchParams,
     window: {
-      location: { search: "", pathname: "/admin/" },
+      location: { search: "", pathname: "/admin/", hash: "" },
       history: { replaceState() {} },
+      addEventListener() {},
     },
     console,
   });
@@ -980,8 +1017,9 @@ test("verified recovery links show the password form and submit the confirmed pa
     },
     URLSearchParams,
     window: {
-      location: { search: "?recovery=ready", pathname: "/admin/" },
+      location: { search: "?recovery=ready", pathname: "/admin/", hash: "" },
       history: { replaceState() {} },
+      addEventListener() {},
     },
     console,
   });

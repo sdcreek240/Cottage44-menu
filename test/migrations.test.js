@@ -58,3 +58,16 @@ test("history is owner-readable and append-only; active and future assignments b
   assert.match(historyMigration, /This plate is assigned for today or a future date/);
   assert.match(historyMigration, /revoke all on function public\.plate_assignment_snapshot\(uuid\)[\s\S]*?from public, anon, authenticated/);
 });
+
+test("plate deletion selects its snapshot only from that service date", () => {
+  const deletionLookup = historyMigration.match(
+    /into previous_snapshot\s+from public\.plate_assignment_history([\s\S]*?)limit 1;/,
+  )?.[1];
+  assert.ok(deletionLookup, "plate-deletion trigger loads a prior snapshot");
+  assert.match(deletionLookup, /where service_date = new\.service_date/);
+  assert.match(
+    deletionLookup,
+    /and \(\s*current_plate ->> 'id' = old\.plate_id::text\s+or previous_plate ->> 'id' = old\.plate_id::text\s*\)/,
+  );
+  assert.match(deletionLookup, /order by id desc/);
+});

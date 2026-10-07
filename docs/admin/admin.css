@@ -201,9 +201,18 @@ h3 {
 }
 
 .dashboard-intro,
-#plate-library,
-#history {
+.dashboard-view {
   grid-column: 1 / -1;
+}
+
+.dashboard-view[hidden] {
+  display: none;
+}
+
+.today-plan-view {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.35rem;
 }
 
 .dashboard-intro {
@@ -240,17 +249,14 @@ h3 {
   text-decoration: none;
 }
 
-.dashboard-nav a:hover {
+.dashboard-nav a:hover,
+.dashboard-nav a[aria-current="page"] {
   border-color: var(--accent);
   color: var(--accent);
 }
 
 .dashboard-section {
   min-width: 0;
-  scroll-margin-top: 1rem;
-}
-
-#plate-library {
   scroll-margin-top: 1rem;
 }
 
@@ -430,13 +436,12 @@ a:focus-visible {
 
 @media (max-width: 54rem) {
   .admin-dashboard,
-  .library-grid {
+  .library-grid,
+  .today-plan-view {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-intro,
-  #plate-library,
-  #history {
+  .dashboard-intro {
     grid-column: auto;
   }
 }
