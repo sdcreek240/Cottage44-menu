@@ -811,6 +811,82 @@ test("owner can plan a saved plate for a future service date", async () => {
   assert.equal((await response.json()).today.serviceDate, "2026-10-09");
 });
 
+test("owner can clear a planned date without replacing it with another plate", async () => {
+  const cookieRequest = sessionRequest(false, "https://menu.example/api/admin/plates/today");
+  const request = new Request(cookieRequest.url, {
+    method: "POST",
+    headers: {
+      Origin: "https://menu.example",
+      Cookie: cookieRequest.headers.get("Cookie") ?? "",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ serviceDate: "2026-10-09", plateId: null }),
+  });
+  let databaseUrl = "";
+  let databaseMethod = "";
+  let preferHeader = "";
+  const response = await handleTodayAdminRequest(
+    request,
+    env,
+    {
+      fetchImpl: async (input, init) => {
+        if (String(input).endsWith("/auth/v1/user")) {
+          return jsonResponse({ email: OWNER_EMAIL });
+        }
+        databaseUrl = String(input);
+        databaseMethod = init?.method ?? "";
+        preferHeader = new Headers(init?.headers).get("Prefer") ?? "";
+        return jsonResponse([{ service_date: "2026-10-09" }]);
+      },
+    },
+    new Date("2026-10-06T22:00:00.000Z"),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(databaseMethod, "DELETE");
+  const query = new URL(databaseUrl).searchParams;
+  assert.equal(query.get("service_date"), "eq.2026-10-09");
+  assert.equal(query.get("select"), "service_date");
+  assert.equal(preferHeader, "return=representation");
+  assert.deepEqual(await response.json(), {
+    cleared: true,
+    serviceDate: "2026-10-09",
+  });
+});
+
+test("clearing an already-unscheduled date is successful and database failures are explicit", async () => {
+  const makeRequest = () => {
+    const baseRequest = sessionRequest(false, "https://menu.example/api/admin/plates/today");
+    return new Request(baseRequest.url, {
+      method: "POST",
+      headers: {
+        Origin: "https://menu.example",
+        Cookie: baseRequest.headers.get("Cookie") ?? "",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ serviceDate: "2026-10-09", plateId: null }),
+    });
+  };
+  const request = makeRequest();
+  const noOpResponse = await handleTodayAdminRequest(request, env, {
+    fetchImpl: async (input) => String(input).endsWith("/auth/v1/user")
+      ? jsonResponse({ email: OWNER_EMAIL })
+      : jsonResponse([]),
+  }, new Date("2026-10-06T22:00:00.000Z"));
+  assert.equal(noOpResponse.status, 200);
+  assert.deepEqual(await noOpResponse.json(), {
+    cleared: true,
+    serviceDate: "2026-10-09",
+  });
+
+  const failedResponse = await handleTodayAdminRequest(makeRequest(), env, {
+    fetchImpl: async (input) => String(input).endsWith("/auth/v1/user")
+      ? jsonResponse({ email: OWNER_EMAIL })
+      : jsonResponse({ message: "permission denied" }, 403),
+  }, new Date("2026-10-06T22:00:00.000Z"));
+  assert.equal(failedResponse.status, 503);
+  assert.match((await failedResponse.json()).error, /latest database migration/);
+});
+
 test("owner planning rejects dates beyond the one-year window", async () => {
   const baseRequest = sessionRequest(false, "https://menu.example/api/admin/plates/today");
   const request = new Request(baseRequest.url, {

@@ -71,3 +71,14 @@ jobs:
           set -euo pipefail
           health="$(curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-all-errors "${PRODUCTION_URL}/api/health")"
           grep -q '"status":"ok"' <<<"$health"
+
+          plates_status="$(curl --silent --show-error --output /tmp/production-plates-today.json \
+            --write-out '%{http_code}' --retry 10 --retry-delay 3 --retry-all-errors \
+            "${PRODUCTION_URL}/api/plates/today")"
+          if [[ "$plates_status" != "200" ]]; then
+            echo "::error::The production public plates API returned HTTP $plates_status."
+            cat /tmp/production-plates-today.json
+            exit 1
+          fi
+          jq -e 'type == "object" and has("plate") and has("nextPlate")' \
+            /tmp/production-plates-today.json >/dev/null

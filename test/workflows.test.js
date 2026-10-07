@@ -68,6 +68,7 @@ test("Cloudflare fork previews deploy the application without unsafe checkout", 
   assert.match(previewWorkflow, /cp -R "\$source_dir\/docs\/\." preview\//);
   assert.match(previewWorkflow, /cp -R "\$source_dir\/functions" preview\//);
   assert.match(previewWorkflow, /environment: Cottage44_menu_preview/);
+  assert.match(previewWorkflow, /group: cloudflare-preview\s+cancel-in-progress: false/);
   assert.match(previewWorkflow, /npx --yes wrangler@4\.148\.0 pages deploy/);
   assert.match(
     previewWorkflow,
@@ -80,12 +81,64 @@ test("Cloudflare fork previews deploy the application without unsafe checkout", 
   assert.match(previewWorkflow, /PREVIEW_URL: \$\{\{ steps\.publish\.outputs\.deployment-url \}\}/);
   assert.match(previewWorkflow, /if: github\.event_name == 'pull_request_target'/);
   assert.match(previewWorkflow, /api\/health/);
+  assert.match(previewWorkflow, /api\/plates\/today/);
+  assert.match(
+    previewWorkflow,
+    /plates_status.*!= "200"[\s\S]*?jq -e 'type == "object" and has\("plate"\) and has\("nextPlate"\)'/,
+  );
   assert.match(
     previewWorkflow,
     /https:\/\/pr-\$\{\{ env\.PREVIEW_PR_NUMBER \}\}\.cottage44-menu-pages\.pages\.dev/,
   );
   assert.doesNotMatch(previewWorkflow, /actions\/checkout/);
   assert.doesNotMatch(previewWorkflow, /allow-unsafe-pr-checkout/);
+});
+
+test("Cloudflare previews migrate only the verified preview project before deployment", () => {
+  const downloadIndex = previewWorkflow.indexOf(
+    'name: Download pull request application files',
+  );
+  const cliSetupIndex = previewWorkflow.indexOf('name: Set up Supabase CLI');
+  const migrationIndex = previewWorkflow.indexOf(
+    'name: Initialize preview Supabase database',
+  );
+  const deployIndex = previewWorkflow.indexOf(
+    'name: Deploy Cloudflare Pages application preview',
+  );
+  const smokeIndex = previewWorkflow.indexOf('name: Smoke-test the deployed application');
+
+  assert.ok(downloadIndex >= 0);
+  assert.ok(downloadIndex < cliSetupIndex);
+  assert.ok(cliSetupIndex < migrationIndex);
+  assert.ok(migrationIndex < deployIndex);
+  assert.ok(deployIndex < smokeIndex);
+  assert.match(
+    previewWorkflow,
+    /cp -R "\$source_dir\/supabase\/migrations" \/tmp\/preview-supabase\/supabase\//,
+  );
+  assert.match(previewWorkflow, /supabase\/config\.toml/);
+  assert.match(
+    previewWorkflow,
+    /working-directory: \/tmp\/preview-supabase[\s\S]*?supabase db push --linked --yes/,
+  );
+  assert.match(
+    previewWorkflow,
+    /SUPABASE_ACCESS_TOKEN: \$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/,
+  );
+  assert.match(
+    previewWorkflow,
+    /SUPABASE_DB_PASSWORD: \$\{\{ secrets\.SUPABASE_DB_PASSWORD \}\}/,
+  );
+  assert.match(
+    previewWorkflow,
+    /SUPABASE_PROJECT_REF: \$\{\{ vars\.SUPABASE_PROJECT_REF \}\}/,
+  );
+  assert.match(
+    previewWorkflow,
+    /SUPABASE_PROJECT_REF" != "kawfjlfizboizpqjcidz"[\s\S]*?supabase link[\s\S]*?supabase db push --linked --yes/,
+  );
+  assert.doesNotMatch(previewWorkflow, /hqhqvzhdujevjuansufo/);
+  assert.doesNotMatch(previewWorkflow, /environment:\s*Cottage44_menu(?:\s|$)/);
 });
 
 test("production smoke tests wait for the Cloudflare deployment and verify the live app", () => {
@@ -98,4 +151,21 @@ test("production smoke tests wait for the Cloudflare deployment and verify the l
   assert.match(productionSmokeWorkflow, /api\/health/);
   assert.match(productionSmokeWorkflow, /Cottage 44/);
   assert.match(productionSmokeWorkflow, /exit 1/);
+});
+
+test("production smoke tests today's public plates endpoint and its nullable response shape", () => {
+  assert.match(productionSmokeWorkflow, /PRODUCTION_URL\}\/api\/plates\/today/);
+  assert.match(
+    productionSmokeWorkflow,
+    /plates_status="\$\(curl[\s\S]*?--output \/tmp\/production-plates-today\.json[\s\S]*?--write-out '%\{http_code\}'[\s\S]*?\)"/,
+  );
+  assert.match(productionSmokeWorkflow, /if \[\[ "\$plates_status" != "200" \]\]/);
+  assert.match(
+    productionSmokeWorkflow,
+    /jq -e 'type == "object" and has\("plate"\) and has\("nextPlate"\)'/,
+  );
+  assert.doesNotMatch(
+    productionSmokeWorkflow,
+    /jq -e '[^'\n]*(?:\.plate|\.nextPlate)\s*!=\s*null/,
+  );
 });

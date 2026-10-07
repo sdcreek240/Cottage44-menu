@@ -145,15 +145,19 @@ export async function handleTodayAdminRequest(
 
   const body = await readJsonBody(request, 4096);
   const todayDate = getBusinessDate(now);
+  if (typeof body !== "object" || body === null || !("plateId" in body)) {
+    return withCookie(
+      jsonResponse({ error: "Choose a saved plate or mark the day as not planned." }, 400),
+      context.cookie,
+    );
+  }
+  const plateId = body.plateId;
   if (
-    typeof body !== "object" ||
-    body === null ||
-    !("plateId" in body) ||
-    typeof body.plateId !== "string" ||
-    !/^[0-9a-f-]{36}$/i.test(body.plateId)
+    plateId !== null &&
+    (typeof plateId !== "string" || !/^[0-9a-f-]{36}$/i.test(plateId))
   ) {
     return withCookie(
-      jsonResponse({ error: "Choose a saved plate." }, 400),
+      jsonResponse({ error: "Choose a saved plate or mark the day as not planned." }, 400),
       context.cookie,
     );
   }
@@ -168,6 +172,66 @@ export async function handleTodayAdminRequest(
       context.cookie,
     );
   }
+  if (plateId === null) {
+    const query = new URLSearchParams({
+      service_date: `eq.${serviceDate}`,
+      select: "service_date",
+    });
+    const response = await adminSupabaseFetch(
+      context,
+      `/rest/v1/daily_plates?${query.toString()}`,
+      {
+        method: "DELETE",
+        headers: { Prefer: "return=representation" },
+      },
+      dependencies,
+    );
+    if (!response?.ok) {
+      dependencies.logger?.error?.(`[admin] Clearing the plate for ${serviceDate} failed.`);
+      const futurePlanningUnavailable =
+        serviceDate !== todayDate && [401, 403].includes(response?.status ?? 0);
+      return withCookie(
+        jsonResponse(
+          {
+            error: futurePlanningUnavailable
+              ? "Future planning is not enabled yet. Please ask the site administrator to apply the latest database migration, then try again."
+              : `The plate for ${serviceDate} could not be cleared. Please try again.`,
+          },
+          futurePlanningUnavailable ? 503 : 502,
+        ),
+        context.cookie,
+      );
+    }
+    let rows: unknown;
+    try {
+      rows = await response.json();
+    } catch {
+      rows = null;
+    }
+    if (
+      !Array.isArray(rows) ||
+      rows.length > 1 ||
+      !rows.every((row) =>
+        typeof row === "object" &&
+        row !== null &&
+        "service_date" in row &&
+        row.service_date === serviceDate
+      )
+    ) {
+      return withCookie(
+        jsonResponse(
+          { error: `The plate for ${serviceDate} could not be cleared. Please try again.` },
+          502,
+        ),
+        context.cookie,
+      );
+    }
+    return withCookie(
+      jsonResponse({ cleared: true, serviceDate }),
+      context.cookie,
+    );
+  }
+
   const response = await adminSupabaseFetch(
     context,
     "/rest/v1/daily_plates?on_conflict=service_date&select=service_date,plate:plates(id,name,description,price_cents,image_url)",
@@ -179,7 +243,7 @@ export async function handleTodayAdminRequest(
       },
       body: JSON.stringify({
         service_date: serviceDate,
-        plate_id: body.plateId,
+        plate_id: plateId,
       }),
     },
     dependencies,
@@ -211,7 +275,7 @@ export async function handleTodayAdminRequest(
     rows.length !== 1 ||
     !validDailyPlate(rows[0], context.config) ||
     rows[0].service_date !== serviceDate ||
-    rows[0].plate.id !== body.plateId
+    rows[0].plate.id !== plateId
   ) {
     return withCookie(
       jsonResponse(
