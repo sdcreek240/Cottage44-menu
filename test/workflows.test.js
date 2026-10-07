@@ -17,10 +17,25 @@ const previewWorkflow = await readFile(
   path.join(root, ".github/workflows/cloudflare-preview.yml"),
   "utf8",
 );
+const productionSmokeWorkflow = await readFile(
+  path.join(root, ".github/workflows/production-smoke.yml"),
+  "utf8",
+);
 
 test("CI is limited to the integration branches", () => {
   assert.match(ciWorkflow, /pull_request:\s+branches:\s+- dev\s+- main/s);
   assert.match(ciWorkflow, /push:\s+branches:\s+- dev\s+- main/s);
+});
+
+test("Supabase migrations use a preview project on dev and production only on main", () => {
+  assert.match(
+    ciWorkflow,
+    /github\.ref == 'refs\/heads\/main' && 'Cottage44_menu' \|\| 'Cottage44_menu_preview'/,
+  );
+  assert.match(
+    ciWorkflow,
+    /branch-specific Supabase environment/,
+  );
 });
 
 test("production release PRs must originate from dev", () => {
@@ -52,9 +67,16 @@ test("Cloudflare fork previews deploy the application without unsafe checkout", 
   );
   assert.match(previewWorkflow, /cp -R "\$source_dir\/docs\/\." preview\//);
   assert.match(previewWorkflow, /cp -R "\$source_dir\/functions" preview\//);
-  assert.match(previewWorkflow, /environment: Cottage44_menu/);
-  assert.match(previewWorkflow, /wranglerVersion: 4\.148\.0/);
-  assert.match(previewWorkflow, /pages deploy \. --project-name=cottage44-menu-pages/);
+  assert.match(previewWorkflow, /environment: Cottage44_menu_preview/);
+  assert.match(previewWorkflow, /npx --yes wrangler@4\.148\.0 pages deploy/);
+  assert.match(
+    previewWorkflow,
+    /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/,
+  );
+  assert.match(
+    previewWorkflow,
+    /pages deploy \. \\\n\s+--project-name=cottage44-menu-pages/,
+  );
   assert.match(previewWorkflow, /PREVIEW_URL: \$\{\{ steps\.publish\.outputs\.deployment-url \}\}/);
   assert.match(previewWorkflow, /if: github\.event_name == 'pull_request_target'/);
   assert.match(previewWorkflow, /api\/health/);
@@ -64,4 +86,16 @@ test("Cloudflare fork previews deploy the application without unsafe checkout", 
   );
   assert.doesNotMatch(previewWorkflow, /actions\/checkout/);
   assert.doesNotMatch(previewWorkflow, /allow-unsafe-pr-checkout/);
+});
+
+test("production smoke tests wait for the Cloudflare deployment and verify the live app", () => {
+  assert.match(productionSmokeWorkflow, /workflow_run:/);
+  assert.match(productionSmokeWorkflow, /workflows:\s+- CI/s);
+  assert.match(productionSmokeWorkflow, /branches:\s+- main/s);
+  assert.match(productionSmokeWorkflow, /name == "Cloudflare Pages"/);
+  assert.match(productionSmokeWorkflow, /completed:success/);
+  assert.match(productionSmokeWorkflow, /https:\/\/menu\.cottage44\.co\.za/);
+  assert.match(productionSmokeWorkflow, /api\/health/);
+  assert.match(productionSmokeWorkflow, /Cottage 44/);
+  assert.match(productionSmokeWorkflow, /exit 1/);
 });
