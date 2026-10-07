@@ -82,12 +82,26 @@
         <button id="back-from-password-reset" class="text-button" type="button">Back to sign in</button>
       </section>
 
-      <div id="dashboard" hidden>
-        <section class="panel" aria-labelledby="today-title">
+      <div id="dashboard" class="admin-dashboard" hidden>
+        <header class="dashboard-intro">
+          <div>
+            <p class="eyebrow">Owner workspace</p>
+            <h1>Manage the menu</h1>
+            <p class="muted">Set today’s plate, plan upcoming weekdays, and keep saved plates up to date.</p>
+          </div>
+          <nav class="dashboard-nav" aria-label="Admin sections">
+            <a href="#today">Today</a>
+            <a href="#planning">Plan ahead</a>
+            <a href="#plate-library">Plate library</a>
+            <a href="#history">Recent history</a>
+          </nav>
+        </header>
+
+        <section id="today" class="panel dashboard-section" aria-labelledby="today-title">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Step 1 · Choose today’s plate</p>
-              <h1 id="today-title">Today’s plate <span id="service-date"></span></h1>
+              <p class="eyebrow">Today’s service</p>
+              <h2 id="today-title">Today’s plate <span id="service-date"></span></h2>
             </div>
           </div>
           <p id="today-summary">No plate has been selected for today.</p>
@@ -98,41 +112,10 @@
           </div>
         </section>
 
-        <section class="panel" aria-labelledby="editor-title">
+        <section id="planning" class="panel dashboard-section" aria-labelledby="planning-title">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Step 2 · Add or update a plate</p>
-              <h2 id="editor-title">Plate details</h2>
-            </div>
-            <button id="new-plate" class="button button--quiet" type="button">New plate</button>
-          </div>
-          <p class="muted">Add the details once, then choose this saved plate whenever it is served.</p>
-          <form id="plate-form">
-            <input id="plate-id" type="hidden">
-            <label for="plate-name">Name</label>
-            <input id="plate-name" name="name" maxlength="120" required>
-            <label for="plate-description">Description</label>
-            <textarea id="plate-description" name="description" maxlength="1000" rows="3"></textarea>
-            <label for="plate-price">Price (ZAR)</label>
-            <input id="plate-price" name="price" type="number" min="0" max="1000000" step="0.01" required>
-            <label for="plate-image">Food photo (optional)</label>
-            <input id="plate-image" name="image" type="file" accept="image/*,.heic,.heif">
-            <p id="image-note" class="muted">Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).</p>
-            <div id="image-preview" class="image-preview" hidden>
-              <img id="image-preview-image" alt="">
-              <button id="clear-image" class="button button--quiet" type="button">Clear selected photo</button>
-            </div>
-            <div class="inline-form">
-                  <button id="save-plate" class="button" type="submit">Save plate details</button>
-              <button id="cancel-edit" class="button button--quiet" type="button" hidden>Cancel edit</button>
-            </div>
-          </form>
-        </section>
-
-        <section class="panel" aria-labelledby="planning-title">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Step 3 · Plan ahead</p>
+              <p class="eyebrow">Plan ahead</p>
               <h2 id="planning-title">Plan a weekday</h2>
             </div>
           </div>
@@ -149,13 +132,54 @@
           <div id="weekly-plan-list" class="weekly-plan-list" aria-live="polite"></div>
         </section>
 
-        <details class="panel collapsible">
-          <summary><span><span class="eyebrow">Step 4</span><strong id="saved-title">Saved plates</strong></span><span class="summary-hint">Reuse or edit</span></summary>
-          <ul id="plate-list" class="plate-list"></ul>
-        </details>
+        <section id="plate-library" class="dashboard-section" aria-labelledby="library-title">
+          <div class="group-heading">
+            <div>
+              <p class="eyebrow">Build your menu</p>
+              <h2 id="library-title">Plate library</h2>
+              <p class="muted">Create a plate once, then reuse or update it whenever you need.</p>
+            </div>
+          </div>
+          <div class="library-grid">
+            <section class="panel" aria-labelledby="editor-title">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Create or update</p>
+                  <h3 id="editor-title">Plate details</h3>
+                </div>
+                <button id="new-plate" class="button button--quiet" type="button">New plate</button>
+              </div>
+              <form id="plate-form">
+                <input id="plate-id" type="hidden">
+                <label for="plate-name">Name</label>
+                <input id="plate-name" name="name" maxlength="120" required>
+                <label for="plate-description">Description</label>
+                <textarea id="plate-description" name="description" maxlength="1000" rows="3"></textarea>
+                <label for="plate-price">Price (ZAR)</label>
+                <input id="plate-price" name="price" type="number" min="0" max="1000000" step="0.01" required>
+                <label for="plate-image">Food photo (optional)</label>
+                <input id="plate-image" name="image" type="file" accept="image/*,.heic,.heif">
+                <p id="image-note" class="muted">Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).</p>
+                <div id="image-preview" class="image-preview" hidden>
+                  <img id="image-preview-image" alt="">
+                  <button id="clear-image" class="button button--quiet" type="button">Clear selected photo</button>
+                </div>
+                <div class="inline-form">
+                  <button id="save-plate" class="button" type="submit">Save plate details</button>
+                  <button id="cancel-edit" class="button button--quiet" type="button" hidden>Cancel edit</button>
+                </div>
+              </form>
+            </section>
 
-        <details class="panel collapsible">
-          <summary><span><span class="eyebrow">Step 5</span><strong id="history-title">Recent history</strong></span><span class="summary-hint">Past dates</span></summary>
+            <details class="panel collapsible">
+              <summary><span><span class="eyebrow">Reuse or edit</span><strong id="saved-title">Saved plates</strong></span><span class="summary-hint">Your menu library</span></summary>
+              <ul id="plate-list" class="plate-list"></ul>
+            </details>
+          </div>
+        </section>
+
+        <details id="history" class="panel collapsible dashboard-section">
+          <summary><span><span class="eyebrow">Past dates</span><strong id="history-title">Recent history</strong></span><span class="summary-hint">Recently served plates</span></summary>
           <ol id="history-list" class="history-list"></ol>
         </details>
       </div>
