@@ -63,6 +63,7 @@ const adminSelectors = [
   "#nav-history",
   "#sign-out",
   "#plate-form",
+  "#plate-editor-panel",
   "#plate-id",
   "#plate-name",
   "#plate-description",
@@ -81,6 +82,8 @@ const adminSelectors = [
   "#today-summary",
   "#service-date",
   "#set-today",
+  "#clear-today",
+  "#average-price",
   "#new-plate",
   "#cancel-edit",
   "#save-plate",
@@ -133,6 +136,8 @@ test("admin dashboard navigation exposes the three grouped views", () => {
 
   assert.match(adminHtml, /<h1>Manage the menu<\/h1>/);
   assert.match(adminHtml, /<h2 id="today-title">Today’s plate/);
+  assert.match(adminHtml, /<p class="eyebrow">Day 1 · Today<\/p>/);
+  assert.match(adminHtml, /Days 2–6 · Next 5 days/);
   const todayPlan = adminHtml.indexOf('id="today-plan-view"');
   const today = adminHtml.indexOf('id="today"');
   const planning = adminHtml.indexOf('id="planning"');
@@ -162,6 +167,11 @@ test("admin dashboard layout switches from grouped desktop columns to a narrow s
   assert.match(adminCss, /\.dashboard-nav\s*\{[\s\S]*?flex-wrap:\s*wrap/);
   assert.match(adminCss, /\.dashboard-view\[hidden\]\s*\{[\s\S]*?display:\s*none/);
   assert.match(adminCss, /\.today-plan-view\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/);
+  assert.match(adminCss, /@media \(max-width:\s*42rem\)[\s\S]*?\.weekly-plan-row,\s*\.price-input-row\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
+  assert.match(adminCss, /@media \(max-width:\s*600px\)[\s\S]*?\.dashboard-nav a\s*\{[\s\S]*?flex:\s*1 1 100%/);
+  assert.match(adminCss, /@media \(max-width:\s*600px\)[\s\S]*?\.plate-item__actions \.button\s*\{[\s\S]*?min-height:\s*2\.8rem/);
+  assert.match(adminCss, /\.plate-editor-panel\s*\{[\s\S]*?scroll-margin-top:\s*1rem/);
+  assert.match(adminCss, /\.plate-editor-panel--editing\s*\{[\s\S]*?border-color:\s*var\(--accent\)/);
 });
 
 class Element {
@@ -175,6 +185,12 @@ class Element {
     this.name = "";
     this.files = [];
     this.listeners = {};
+    this.classNames = new Set();
+    this.classList = {
+      add: (name) => this.classNames.add(name),
+      remove: (name) => this.classNames.delete(name),
+      contains: (name) => this.classNames.has(name),
+    };
   }
 
   append(...elements) {
@@ -201,7 +217,14 @@ class Element {
     delete this.attributes[name];
   }
 
-  focus() {}
+  focus(options) {
+    this.focusOptions = options;
+    this.focusCount = (this.focusCount ?? 0) + 1;
+  }
+
+  scrollIntoView(options) {
+    this.scrollOptions = options;
+  }
 
   reset() {}
 }
@@ -218,10 +241,12 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.match(adminHtml, /id="toggle-password"[^>]*aria-label="Show password"/);
   assert.match(adminHtml, /id="toggle-new-password"[^>]*aria-controls="new-password"/);
   assert.match(adminHtml, /id="toggle-confirm-password"[^>]*aria-pressed="false"/);
+  assert.match(adminHtml, /View \/ Edit \/ Delete Plates/);
 
   const elements = Object.fromEntries(
     adminSelectors.map((selector) => [selector, new Element()]),
   );
+  elements["#clear-today"].textContent = "Clear today’s plate";
   for (const [toggle, input] of [
     ["#toggle-password", "password"],
     ["#toggle-new-password", "new-password"],
@@ -259,6 +284,8 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   let failSignOut = false;
   let holdAssignment = false;
   let resolveAssignment;
+  let holdTodayClear = false;
+  let resolveTodayClear;
   const windowListeners = {};
   const imageUrl =
     "https://cottage44-test.supabase.co/storage/v1/object/public/cottage44-plates/123e4567-e89b-42d3-a456-426614174000.jpg";
@@ -378,7 +405,13 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
             occurredAt: "2026-10-07T10:00:00.000Z",
           });
         }
-        return Response.json({ cleared: true, serviceDate });
+        const response = Response.json({ cleared: true, serviceDate });
+        if (holdTodayClear && serviceDate === "2026-10-07") {
+          return new Promise((resolve) => {
+            resolveTodayClear = () => resolve(response);
+          });
+        }
+        return response;
       }
       const plate = savedPlates.find((item) => item.id === plateId);
       const previousPlate = scheduledPlates.get(serviceDate);
@@ -582,6 +615,8 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.equal(elements["#plate-library-view"].hidden, true);
   assert.equal(elements["#history-view"].hidden, true);
   assert.equal(elements["#nav-today-plan"].getAttribute("aria-current"), "page");
+  assert.equal(elements["#average-price"].disabled, true, "average is unavailable before saving a plate");
+  assert.equal(elements["#today-select"].children[0].textContent, "Save a plate first");
   elements["#nav-plate-library"].listeners.click({ preventDefault() {} });
   assert.equal(elements["#today-plan-view"].hidden, true);
   assert.equal(elements["#plate-library-view"].hidden, false);
@@ -660,9 +695,29 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     priceCents: 12500,
     imageUrl,
   });
+  assert.equal(elements["#average-price"].disabled, false);
+  savedPlates.push({
+    ...savedPlates[0],
+    id: "a4df7fd4-1e8a-46a3-83c6-3c717e0ecf27",
+    name: "Soup",
+    priceCents: 12600,
+  });
+  await context.loadDashboard();
+  elements["#average-price"].listeners.click();
+  assert.equal(elements["#plate-price"].value, "126", "125.50 rounds up to the nearest rand");
 
   const editButton = elements["#plate-list"].children[0].children[1].children[0];
+  const previousScroll = elements["#plate-editor-panel"].scrollOptions;
   editButton.listeners.click();
+  assert.equal(elements["#plate-library-view"].hidden, false);
+  assert.equal(elements["#plate-editor-panel"].scrollOptions.behavior, "smooth");
+  assert.equal(elements["#plate-editor-panel"].scrollOptions.block, "start");
+  assert.notEqual(elements["#plate-editor-panel"].scrollOptions, previousScroll);
+  assert.equal(elements["#plate-name"].focusOptions.preventScroll, true);
+  assert.equal(elements["#plate-editor-panel"].classList.contains("plate-editor-panel--editing"), true);
+  assert.equal(elements["#editor-title"].textContent, "Edit Cottage burger");
+  assert.equal(elements["#plate-name"].value, "Cottage burger");
+  assert.equal(elements["#plate-price"].value, "125.00");
   assert.equal(elements["#image-preview"].hidden, false);
   assert.equal(elements["#image-preview-image"].src, imageUrl);
   assert.match(elements["#image-note"].textContent, /will be kept unless you choose a replacement/);
@@ -672,6 +727,8 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     url.startsWith("/api/admin/plates/") && options.method === "PATCH");
   assert.ok(updateCall);
   assert.equal(JSON.parse(updateCall.options.body).imageUrl, imageUrl);
+  assert.equal(elements["#plate-editor-panel"].classList.contains("plate-editor-panel--editing"), false);
+  assert.equal(elements["#editor-title"].textContent, "Create plate");
   historyEvents.push({
     id: nextHistoryId++,
     serviceDate: "2026-09-07",
@@ -690,22 +747,66 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     plateId: savedPlates[0].id,
   });
   assert.match(elements["#today-summary"].textContent, /Cottage burger/);
+  assert.equal(elements["#clear-today"].hidden, false);
 
+  failSchedule = true;
+  await elements["#clear-today"].listeners.click();
+  const failedTodayClear = calls.findLast(({ url, options }) =>
+    url === "/api/admin/plates/today" && options.method === "POST");
+  assert.deepEqual(JSON.parse(failedTodayClear.options.body), { plateId: null });
+  assert.match(elements["#status-message"].textContent, /could not be cleared/);
+  assert.equal(elements["#today-summary"].textContent.includes("Cottage burger"), true);
+  assert.equal(elements["#clear-today"].hidden, false);
+  assert.equal(elements["#clear-today"].disabled, false);
+  assert.equal(elements["#clear-today"].textContent, "Clear today’s plate");
+  failSchedule = false;
+  holdTodayClear = true;
+  const pendingTodayClear = elements["#clear-today"].listeners.click();
+  await Promise.resolve();
+  assert.equal(elements["#clear-today"].disabled, true);
+  assert.equal(elements["#clear-today"].textContent, "Clearing…");
+  resolveTodayClear();
+  await pendingTodayClear;
+  holdTodayClear = false;
+  assert.equal(elements["#today-summary"].textContent, "No plate has been selected for today.");
+  assert.equal(elements["#clear-today"].hidden, true);
+  assert.equal(elements["#today-select"].focusCount > 0, true);
+  assert.equal(elements["#status-message"].textContent, "Today’s plate has been cleared.");
+  assert.equal(elements["#status"].dataset.kind, "success");
+
+  assert.equal(elements["#weekly-plan-list"].children.length, 5);
+  const displayedWeekdays = elements["#weekly-plan-list"].children.map(
+    (row) => row.dataset.serviceDate,
+  );
+  assert.deepEqual(displayedWeekdays, [
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+  ]);
+  assert.ok(displayedWeekdays.every((date) => date > "2026-10-07"));
+  assert.match(elements["#weekly-plan-list"].children[0].children[0].textContent, /^Day 2 · /);
+  assert.match(elements["#weekly-plan-list"].children[4].children[0].textContent, /^Day 6 · /);
   const weeklyRow = elements["#weekly-plan-list"].children[0];
   const weeklySelect = weeklyRow.children[1];
   const weeklyButton = weeklyRow.children[2];
-  assert.equal(weeklySelect.value, savedPlates[0].id);
+  assert.equal(weeklyRow.dataset.dayNumber, "2");
+  assert.equal(weeklySelect.value, "");
+  weeklySelect.value = savedPlates[0].id;
+  await weeklyButton.listeners.click();
+  assert.equal(elements["#weekly-plan-list"].children[0].children[1].value, savedPlates[0].id);
   weeklySelect.value = "";
   await weeklyButton.listeners.click();
   const clearCall = calls.findLast(({ url, options }) =>
     url === "/api/admin/plates/today" && options.method === "POST");
   assert.deepEqual(JSON.parse(clearCall.options.body), {
-    serviceDate: "2026-10-07",
+    serviceDate: "2026-10-08",
     plateId: null,
   });
   assert.equal(elements["#status"].dataset.kind, "success");
   assert.equal(elements["#status-icon"].textContent, "✓");
-  assert.equal(elements["#status-message"].textContent, "No plate planned for 2026-10-07.");
+  assert.equal(elements["#status-message"].textContent, "No plate planned for 2026-10-08.");
   assert.equal(elements["#weekly-plan-list"].children[0].children[1].value, "");
   assert.equal(elements["#today-summary"].textContent, "No plate has been selected for today.");
 
@@ -717,8 +818,15 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.equal(elements["#status"].dataset.kind, "success");
   assert.equal(elements["#status-icon"].textContent, "✓");
 
+  assert.deepEqual(
+    Array.from(context.planningWeekdays("2026-10-09")),
+    ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"],
+    "a Friday start skips the weekend and still shows five future weekdays",
+  );
+
   const assignmentCount = calls.filter(({ url, options }) =>
     url === "/api/admin/plates/today" && options.method === "POST").length;
+  elements["#today-select"].value = savedPlates[0].id;
   holdAssignment = true;
   const firstAssignment = elements["#set-today"].listeners.click();
   const duplicateAssignment = elements["#set-today"].listeners.click();

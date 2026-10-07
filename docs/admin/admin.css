@@ -106,6 +106,16 @@ main {
   box-shadow: 0 12px 35px rgb(43 53 42 / 6%);
 }
 
+.plate-editor-panel {
+  scroll-margin-top: 1rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.plate-editor-panel--editing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .collapsible {
   padding: 0;
   overflow: hidden;
@@ -320,6 +330,19 @@ select {
   border-radius: 0.45rem;
   background: var(--page);
   color: var(--ink);
+  font-size: 1rem;
+}
+
+.price-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.price-input-row .button {
+  min-height: 2.8rem;
+  white-space: nowrap;
 }
 
 .password-field {
@@ -422,6 +445,10 @@ a:focus-visible {
   gap: 0.35rem;
   grid-template-columns: minmax(8rem, 0.8fr) minmax(10rem, 1fr) auto;
   align-items: end;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--surface);
 }
 
 .weekly-plan-row label {
@@ -429,7 +456,8 @@ a:focus-visible {
 }
 
 @media (max-width: 42rem) {
-  .weekly-plan-row {
+  .weekly-plan-row,
+  .price-input-row {
     grid-template-columns: 1fr;
   }
 }
@@ -618,8 +646,19 @@ a:focus-visible {
     flex-direction: column;
   }
 
+  .dashboard-nav a {
+    flex: 1 1 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
   .plate-item__actions {
     flex-wrap: wrap;
+  }
+
+  .plate-item__actions .button {
+    flex: 1 1 7rem;
+    min-height: 2.8rem;
   }
 }
 

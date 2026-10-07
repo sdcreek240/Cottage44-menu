@@ -34,6 +34,8 @@ const dashboardNavigation = {
 };
 const signOutButton = document.querySelector("#sign-out");
 const plateForm = document.querySelector("#plate-form");
+const plateEditorPanel = document.querySelector("#plate-editor-panel");
+const plateEditorTitle = document.querySelector("#editor-title");
 const plateIdInput = document.querySelector("#plate-id");
 const nameInput = document.querySelector("#plate-name");
 const descriptionInput = document.querySelector("#plate-description");
@@ -58,8 +60,10 @@ const scheduleDateInput = document.querySelector("#schedule-date");
 const scheduleSelect = document.querySelector("#schedule-select");
 const saveScheduleButton = document.querySelector("#save-schedule");
 const savePlateButton = document.querySelector("#save-plate");
+const averagePriceButton = document.querySelector("#average-price");
 const scheduleSummary = document.querySelector("#schedule-summary");
 const weeklyPlanList = document.querySelector("#weekly-plan-list");
+const clearTodayButton = document.querySelector("#clear-today");
 
 let plates = [];
 let upcomingAssignments = [];
@@ -324,6 +328,7 @@ function updateTodaySummary() {
   todaySummary.textContent = selected
     ? `${selected.name} — ${formatPrice(selected.priceCents)}`
     : "No plate has been selected for today.";
+  clearTodayButton.hidden = !selected;
 }
 
 function renderPlateList() {
@@ -373,6 +378,7 @@ function renderPlateList() {
     plateList.append(item);
   }
   setTodayButton.disabled = plates.length === 0;
+  averagePriceButton.disabled = plates.length === 0;
   scheduleSelect.replaceChildren();
   const schedulePlaceholder = document.createElement("option");
   schedulePlaceholder.value = "";
@@ -406,6 +412,7 @@ function selectScheduledPlate() {
 function planningWeekdays(startDate) {
   const dates = [];
   const date = new Date(`${startDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
   while (dates.length < 5) {
     const day = date.getUTCDay();
     if (day !== 0 && day !== 6) {
@@ -428,16 +435,19 @@ function renderWeeklyPlan() {
     return;
   }
   const assignments = new Map(upcomingAssignments.map((item) => [item.serviceDate, item.plate]));
-  for (const date of planningWeekdays(serviceDate.textContent)) {
+  for (const [index, date] of planningWeekdays(serviceDate.textContent).entries()) {
     const row = document.createElement("div");
     row.className = "weekly-plan-row";
+    row.dataset.serviceDate = date;
+    row.dataset.dayNumber = String(index + 2);
     const label = document.createElement("label");
-    label.textContent = new Intl.DateTimeFormat("en-ZA", {
+    const formattedDate = new Intl.DateTimeFormat("en-ZA", {
       weekday: "long",
       day: "numeric",
       month: "short",
       timeZone: "Africa/Johannesburg",
     }).format(new Date(`${date}T12:00:00.000Z`));
+    label.textContent = `Day ${index + 2} · ${formattedDate}`;
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Saved plate for ${label.textContent}`);
     const empty = document.createElement("option");
@@ -551,6 +561,7 @@ async function loadHistory(before = null, append = false) {
 
 async function loadDashboard() {
   setStatus("Loading today’s plate, plan ahead, and plate library…");
+  let loaded = false;
   try {
     const catalog = await apiRequest("/api/admin/plates");
     const daily = await apiRequest("/api/admin/plates/today");
@@ -564,49 +575,51 @@ async function loadDashboard() {
     renderPlateList();
     renderWeeklyPlan();
     selectScheduledPlate();
+    loaded = true;
     setStatus("");
   } catch (error) {
     setStatus(error.message, "error");
   }
   await loadHistory();
-
-  scheduleDateInput.addEventListener("change", selectScheduledPlate);
-  scheduleSelect.addEventListener("change", updateScheduleSummary);
-
-  saveScheduleButton.addEventListener("click", async () => {
-    if (!beginBusy(saveScheduleButton, "Saving…")) {
-      return;
-    }
-    if (!scheduleDateInput.value) {
-      setStatus("Choose a date first.", "error");
-      endBusy(saveScheduleButton);
-      return;
-    }
-    setStatus(
-      scheduleSelect.value ? "Saving the planned plate…" : "Marking the day as not planned…",
-    );
-    try {
-      const result = await apiRequest("/api/admin/plates/today", {
-        method: "POST",
-        body: JSON.stringify({
-          serviceDate: scheduleDateInput.value,
-          plateId: scheduleSelect.value || null,
-        }),
-      });
-      await loadDashboard();
-      setStatus(
-        scheduleSelect.value
-          ? `${result.today.plate.name} planned for ${result.today.serviceDate}.`
-          : `No plate planned for ${result.serviceDate}.`,
-        "success",
-      );
-    } catch (error) {
-      setStatus(`Could not save ${scheduleDateInput.value}. ${error.message}`, "error");
-    } finally {
-      endBusy(saveScheduleButton);
-    }
-  });
+  return loaded;
 }
+
+scheduleDateInput.addEventListener("change", selectScheduledPlate);
+scheduleSelect.addEventListener("change", updateScheduleSummary);
+
+saveScheduleButton.addEventListener("click", async () => {
+  if (!beginBusy(saveScheduleButton, "Saving…")) {
+    return;
+  }
+  if (!scheduleDateInput.value) {
+    setStatus("Choose a date first.", "error");
+    endBusy(saveScheduleButton);
+    return;
+  }
+  setStatus(
+    scheduleSelect.value ? "Saving the planned plate…" : "Marking the day as not planned…",
+  );
+  try {
+    const result = await apiRequest("/api/admin/plates/today", {
+      method: "POST",
+      body: JSON.stringify({
+        serviceDate: scheduleDateInput.value,
+        plateId: scheduleSelect.value || null,
+      }),
+    });
+    await loadDashboard();
+    setStatus(
+      scheduleSelect.value
+        ? `${result.today.plate.name} planned for ${result.today.serviceDate}.`
+        : `No plate planned for ${result.serviceDate}.`,
+      "success",
+    );
+  } catch (error) {
+    setStatus(`Could not save ${scheduleDateInput.value}. ${error.message}`, "error");
+  } finally {
+    endBusy(saveScheduleButton);
+  }
+});
 
 function resetForm() {
   plateForm.reset();
@@ -615,7 +628,8 @@ function resetForm() {
   imageNote.textContent = "Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).";
   clearImagePreview();
   cancelEditButton.hidden = true;
-  document.querySelector("#editor-title").textContent = "Plate details";
+  plateEditorPanel.classList.remove("plate-editor-panel--editing");
+  plateEditorTitle.textContent = "Create plate";
 }
 
 function clearImagePreview() {
@@ -642,6 +656,7 @@ function showImagePreview(source, alt, isLocalPreview = false) {
 }
 
 function editPlate(plate) {
+  showDashboardView("plate-library-view");
   plateIdInput.value = plate.id;
   nameInput.value = plate.name;
   descriptionInput.value = plate.description;
@@ -653,8 +668,17 @@ function editPlate(plate) {
     : "No saved photo. Add one if you want a photo with this plate.";
   showImagePreview(savedImageUrl, `Saved photo of ${plate.name}`);
   cancelEditButton.hidden = false;
-  document.querySelector("#editor-title").textContent = `Edit ${plate.name}`;
-  nameInput.focus();
+  plateEditorPanel.classList.add("plate-editor-panel--editing");
+  plateEditorTitle.textContent = `Edit ${plate.name}`;
+  scrollToPlateEditor();
+  nameInput.focus({ preventScroll: true });
+}
+
+function scrollToPlateEditor() {
+  const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+  plateEditorPanel.scrollIntoView({ behavior, block: "start" });
 }
 
 imageInput.addEventListener("change", () => {
@@ -996,9 +1020,51 @@ historyLoadMoreButton.addEventListener("click", () =>
 );
 newPlateButton.addEventListener("click", () => {
   resetForm();
+  scrollToPlateEditor();
   nameInput.focus();
 });
 cancelEditButton.addEventListener("click", resetForm);
+
+averagePriceButton.addEventListener("click", () => {
+  if (plates.length === 0) {
+    setStatus("Save a plate first to calculate its average price.", "info");
+    return;
+  }
+  const averagePrice = Math.round(
+    plates.reduce((total, plate) => total + plate.priceCents, 0) /
+      plates.length /
+      100,
+  );
+  priceInput.value = String(averagePrice);
+  priceInput.focus();
+});
+
+clearTodayButton.addEventListener("click", async () => {
+  if (!beginBusy(clearTodayButton, "Clearing…")) {
+    return;
+  }
+  setStatus("Clearing today’s plate…");
+  try {
+    await apiRequest("/api/admin/plates/today", {
+      method: "POST",
+      body: JSON.stringify({ plateId: null }),
+    });
+    todayPlateId = null;
+    todaySelect.value = "";
+    updateTodaySummary();
+    const refreshed = await loadDashboard();
+    todaySelect.focus();
+    if (!refreshed) {
+      setStatus("Today’s plate was cleared, but the admin view could not be refreshed. Please reload.", "warning");
+      return;
+    }
+    setStatus("Today’s plate has been cleared.", "success");
+  } catch (error) {
+    setStatus(`Today’s plate could not be cleared. ${error.message}`, "error");
+  } finally {
+    endBusy(clearTodayButton);
+  }
+});
 
 for (const [viewId, link] of Object.entries(dashboardNavigation)) {
   link.addEventListener("click", (event) => {

@@ -100,7 +100,7 @@
           <section id="today" class="panel dashboard-section" aria-labelledby="today-title">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Today’s service</p>
+                <p class="eyebrow">Day 1 · Today</p>
                 <h2 id="today-title">Today’s plate <span id="service-date"></span></h2>
               </div>
             </div>
@@ -109,17 +109,18 @@
             <div class="inline-form">
               <select id="today-select" aria-label="Choose a saved plate for today"></select>
               <button id="set-today" class="button" type="button">Set as today’s plate</button>
+              <button id="clear-today" class="button button--quiet" type="button" hidden>Clear today’s plate</button>
             </div>
           </section>
 
           <section id="planning" class="panel dashboard-section" aria-labelledby="planning-title">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Plan ahead</p>
-                <h2 id="planning-title">Plan a weekday</h2>
+                <p class="eyebrow">Days 2–6 · Next 5 days</p>
+                <h2 id="planning-title">Plan ahead</h2>
               </div>
             </div>
-            <p class="muted">Choose a date and a saved plate. You can prepare the whole week before Friday.</p>
+            <p class="muted">Today is shown separately. Choose a future weekday and saved plate to prepare the next five service days.</p>
             <label for="schedule-date">Date to plan</label>
             <input id="schedule-date" type="date">
             <label for="schedule-select">Saved plate for that date</label>
@@ -128,7 +129,7 @@
               <button id="save-schedule" class="button" type="button">Save this day</button>
             </div>
             <p id="schedule-summary" class="muted"></p>
-            <h3 class="planner-subtitle">Quick plan for the next weekdays</h3>
+            <h3 class="planner-subtitle">Next 5 future weekdays</h3>
             <div id="weekly-plan-list" class="weekly-plan-list" aria-live="polite"></div>
           </section>
         </section>
@@ -143,11 +144,11 @@
               </div>
             </div>
             <div class="library-grid">
-              <section class="panel" aria-labelledby="editor-title">
+              <section id="plate-editor-panel" class="panel plate-editor-panel" aria-labelledby="editor-title" tabindex="-1">
                 <div class="section-heading">
                   <div>
                     <p class="eyebrow">Create or update</p>
-                    <h3 id="editor-title">Plate details</h3>
+                    <h3 id="editor-title">Create plate</h3>
                   </div>
                   <button id="new-plate" class="button button--quiet" type="button">New plate</button>
                 </div>
@@ -158,7 +159,11 @@
                   <label for="plate-description">Description</label>
                   <textarea id="plate-description" name="description" maxlength="1000" rows="3"></textarea>
                   <label for="plate-price">Price (ZAR)</label>
-                  <input id="plate-price" name="price" type="number" min="0" max="1000000" step="0.01" required>
+                  <div class="price-input-row">
+                    <input id="plate-price" name="price" type="number" min="0" max="1000000" step="0.01" required>
+                    <button id="average-price" class="button button--quiet" type="button" disabled>Use average</button>
+                  </div>
+                  <p class="muted">Optional: use the rounded average price of your saved plates.</p>
                   <label for="plate-image">Food photo (optional)</label>
                   <input id="plate-image" name="image" type="file" accept="image/*,.heic,.heif">
                   <p id="image-note" class="muted">Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).</p>
@@ -174,7 +179,7 @@
               </section>
 
               <details class="panel collapsible">
-                <summary><span><span class="eyebrow">Reuse or edit</span><strong id="saved-title">Saved plates</strong></span><span class="summary-hint">Your menu library</span></summary>
+                <summary><span><span class="eyebrow">Plate management</span><strong id="saved-title">View / Edit / Delete Plates</strong></span><span class="summary-hint">Your saved plates</span></summary>
                 <ul id="plate-list" class="plate-list"></ul>
               </details>
             </div>
