@@ -72,7 +72,7 @@ jobs:
 
       - name: Smoke-test the deployed application
         env:
-          PREVIEW_URL: https://pr-${{ env.PREVIEW_PR_NUMBER }}.cottage44-menu-pages.pages.dev
+          PREVIEW_URL: ${{ steps.publish.outputs.deployment-url }}
         run: |
           set -euo pipefail
           homepage="$(curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-all-errors "$PREVIEW_URL/")"
@@ -82,6 +82,7 @@ jobs:
           grep -q '"status":"ok"' <<<"$health"
 
       - name: Add preview link to the pull request
+        if: github.event_name == 'pull_request_target'
         uses: actions/github-script@v7
         env:
           PREVIEW_URL: https://pr-${{ env.PREVIEW_PR_NUMBER }}.cottage44-menu-pages.pages.dev
