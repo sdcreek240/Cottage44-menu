@@ -174,6 +174,8 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   }
   const calls = [];
   const timers = new Map();
+  const scheduledFrequencies = [];
+  let audioContextCount = 0;
   let nextTimer = 1;
   let savedPlates = [];
   let todaysPlate = null;
@@ -324,7 +326,49 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     },
     getElementById: (id) => elements[`#${id}`],
     createElement: () => new Element(),
+    addEventListener: (event, callback) => {
+      document.listeners ??= {};
+      document.listeners[event] = callback;
+    },
+    removeEventListener: (event, callback) => {
+      if (document.listeners?.[event] === callback) {
+        delete document.listeners[event];
+      }
+    },
   };
+  class FakeAudioContext {
+    constructor() {
+      audioContextCount += 1;
+      this.state = "suspended";
+      this.currentTime = 10;
+      this.destination = {};
+    }
+
+    async resume() {
+      this.state = "running";
+    }
+
+    createOscillator() {
+      return {
+        frequency: {
+          setValueAtTime: (frequency) => scheduledFrequencies.push(frequency),
+        },
+        connect() {},
+        start() {},
+        stop() {},
+      };
+    }
+
+    createGain() {
+      return {
+        gain: {
+          setValueAtTime() {},
+          linearRampToValueAtTime() {},
+        },
+        connect() {},
+      };
+    }
+  }
   const context = vm.createContext({
     document,
     fetch: fetchMock,
@@ -344,10 +388,15 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       confirm: () => true,
       location: { search: "", pathname: "/admin/" },
       history: { replaceState() {} },
+      AudioContext: FakeAudioContext,
     },
     console,
   });
   vm.runInContext(adminScript, context, { filename: "docs/admin/admin.js" });
+  assert.equal(audioContextCount, 0, "audio stays locked until user interaction");
+  await document.listeners.pointerdown();
+  assert.equal(audioContextCount, 1);
+  assert.equal(document.listeners.pointerdown, undefined, "audio unlock listener is removed after success");
   for (const [toggle, input] of [
     ["#toggle-password", "#password"],
     ["#toggle-new-password", "#new-password"],
@@ -373,6 +422,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.equal(elements["#status-message"].textContent, "Email or password is incorrect.");
   assert.equal(elements["#status"].dataset.kind, "error");
   assert.equal(elements["#status-icon"].textContent, "×");
+  assert.deepEqual(scheduledFrequencies, [330, 220], "error toast schedules a low descending tone");
   assert.equal(elements["#dashboard"].hidden, true);
   context.setStatus("Information", "info");
   assert.equal(elements["#status-icon"].textContent, "i");
@@ -387,6 +437,11 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   );
   assert.equal(JSON.parse(signInCall.options.body).rememberMe, true);
   assert.equal(elements["#dashboard"].hidden, false);
+  assert.deepEqual(
+    scheduledFrequencies,
+    [330, 220, 660, 880],
+    "success toast schedules a distinct rising tone",
+  );
 
   elements["#plate-name"].value = "Cottage burger";
   elements["#plate-description"].value = "Beef and chips";

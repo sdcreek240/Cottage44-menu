@@ -54,6 +54,9 @@ let todayPlateId = null;
 let savedImageUrl = null;
 let previewObjectUrl = null;
 let statusTimer = null;
+let toastAudioContext = null;
+let toastAudioUnlocking = false;
+let toastAudioUnlocked = false;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2000;
 const SOURCE_IMAGE_TYPES = new Set([
@@ -89,11 +92,75 @@ function setStatus(message, kind = "info") {
     "aria-live",
     statusKind === "error" || statusKind === "warning" ? "assertive" : "polite",
   );
+  if (text && (statusKind === "success" || statusKind === "error")) {
+    playToastTone(statusKind);
+  }
   if (text && typeof setTimeout === "function") {
     statusTimer = setTimeout(() => {
       dismissStatus();
     }, kind === "error" ? 10000 : 5000);
   }
+}
+
+function unlockToastAudio() {
+  const AudioContextConstructor = window.AudioContext;
+  if (!AudioContextConstructor || toastAudioUnlocking || toastAudioUnlocked) {
+    return Promise.resolve();
+  }
+  toastAudioUnlocking = true;
+  try {
+    toastAudioContext ??= new AudioContextConstructor();
+    return toastAudioContext.resume().then(() => {
+      toastAudioUnlocked = toastAudioContext.state === "running";
+      if (
+        toastAudioUnlocked &&
+        typeof document.removeEventListener === "function"
+      ) {
+        document.removeEventListener("pointerdown", unlockToastAudio);
+        document.removeEventListener("keydown", unlockToastAudio);
+      }
+    }).catch(() => {
+      // Audio is optional; a blocked or unavailable context must not block a toast.
+    }).finally(() => {
+      toastAudioUnlocking = false;
+    });
+  } catch {
+    toastAudioUnlocking = false;
+    return Promise.resolve();
+  }
+}
+
+function playToastTone(kind) {
+  if (
+    !toastAudioUnlocked ||
+    toastAudioContext?.state !== "running"
+  ) {
+    return;
+  }
+  const notes = kind === "success" ? [660, 880] : [330, 220];
+  try {
+    for (const [index, frequency] of notes.entries()) {
+      const start = toastAudioContext.currentTime + index * 0.11;
+      const oscillator = toastAudioContext.createOscillator();
+      const gain = toastAudioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.025, start + 0.015);
+      gain.gain.linearRampToValueAtTime(0, start + 0.14);
+      oscillator.connect(gain);
+      gain.connect(toastAudioContext.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.15);
+    }
+  } catch {
+    // Audio playback is decorative and must never interrupt status feedback.
+  }
+}
+
+if (typeof document.addEventListener === "function") {
+  document.addEventListener("pointerdown", unlockToastAudio);
+  document.addEventListener("keydown", unlockToastAudio);
 }
 
 function dismissStatus() {
