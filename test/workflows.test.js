@@ -55,8 +55,7 @@ test("Cloudflare fork previews deploy the application without unsafe checkout", 
   assert.match(previewWorkflow, /environment: Cottage44_menu_preview/);
   assert.match(previewWorkflow, /npx --yes wrangler@4\.148\.0 pages deploy/);
   assert.match(previewWorkflow, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
-  assert.match(previewWorkflow, /pages deploy \. --project-name=cottage44-menu-pages/);
-  assert.match(previewWorkflow, /PREVIEW_URL: \$\{\{ steps\.publish\.outputs\.deployment-url \}\}/);
+  assert.match(previewWorkflow, /pages deploy \\. \\\n\\s+--project-name=cottage44-menu-pages/);\n  assert.match(previewWorkflow, /PREVIEW_URL: \$\{\{ steps\.publish\.outputs\.deployment-url \}\}/);
   assert.match(previewWorkflow, /if: github\.event_name == 'pull_request_target'/);
   assert.match(previewWorkflow, /api\/health/);
   assert.match(
