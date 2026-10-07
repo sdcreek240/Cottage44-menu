@@ -63,10 +63,10 @@ jobs:
       - name: Deploy Cloudflare Pages application preview
         id: publish
         uses: cloudflare/wrangler-action@v3
-        working-directory: preview
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: preview
           wranglerVersion: 4.148.0
           command: pages deploy . --project-name=cottage44-menu-pages --branch=pr-${{ env.PREVIEW_PR_NUMBER }}
 
