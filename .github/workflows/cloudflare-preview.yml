@@ -5,6 +5,12 @@ on:
     types: [opened, synchronize, reopened]
     branches:
       - dev
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number whose merge archive should be previewed
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -20,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: Cottage44_menu
+    env:
+      PREVIEW_PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
     steps:
       - name: Download pull request application files
         env:
@@ -31,7 +39,7 @@ jobs:
           curl --fail-with-body --location \
             --header "Authorization: Bearer ${GH_TOKEN}" \
             --header "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/zipball/refs/pull/${PR_NUMBER}/merge" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/zipball/refs/pull/${PREVIEW_PR_NUMBER}/merge" \
             --output /tmp/pull-request.zip
           unzip -q /tmp/pull-request.zip -d /tmp/pull-request
           source_dir="$(find /tmp/pull-request -mindepth 1 -maxdepth 1 -type d -print -quit)"
@@ -60,11 +68,11 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: 4.148.0
-          command: pages deploy . --project-name=cottage44-menu-pages --branch=pr-${{ github.event.pull_request.number }}
+          command: pages deploy . --project-name=cottage44-menu-pages --branch=pr-${{ env.PREVIEW_PR_NUMBER }}
 
       - name: Smoke-test the deployed application
         env:
-          PREVIEW_URL: https://pr-${{ github.event.pull_request.number }}.cottage44-menu-pages.pages.dev
+          PREVIEW_URL: https://pr-${{ env.PREVIEW_PR_NUMBER }}.cottage44-menu-pages.pages.dev
         run: |
           set -euo pipefail
           homepage="$(curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-all-errors "$PREVIEW_URL/")"
@@ -76,7 +84,7 @@ jobs:
       - name: Add preview link to the pull request
         uses: actions/github-script@v7
         env:
-          PREVIEW_URL: https://pr-${{ github.event.pull_request.number }}.cottage44-menu-pages.pages.dev
+          PREVIEW_URL: https://pr-${{ env.PREVIEW_PR_NUMBER }}.cottage44-menu-pages.pages.dev
         with:
           script: |
             const marker = '<!-- cloudflare-pages-preview -->';
