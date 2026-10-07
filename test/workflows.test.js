@@ -5,10 +5,42 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ciWorkflow = await readFile(
+  path.join(root, ".github/workflows/ci.yml"),
+  "utf8",
+);
+const branchPolicyWorkflow = await readFile(
+  path.join(root, ".github/workflows/branch-policy.yml"),
+  "utf8",
+);
 const previewWorkflow = await readFile(
   path.join(root, ".github/workflows/cloudflare-preview.yml"),
   "utf8",
 );
+
+test("CI is limited to the integration branches", () => {
+  assert.match(ciWorkflow, /pull_request:\s+branches:\s+- dev\s+- main/s);
+  assert.match(ciWorkflow, /push:\s+branches:\s+- dev\s+- main/s);
+});
+
+test("production release PRs must originate from dev", () => {
+  assert.match(
+    branchPolicyWorkflow,
+    /pull_request:\s+branches:\s+- dev\s+- main/s,
+  );
+  assert.match(
+    branchPolicyWorkflow,
+    /BASE_REF.*github\.event\.pull_request\.base\.ref/s,
+  );
+  assert.match(
+    branchPolicyWorkflow,
+    /HEAD_REF.*github\.event\.pull_request\.head\.ref/s,
+  );
+  assert.match(
+    branchPolicyWorkflow,
+    /BASE_REF.*== "main".*HEAD_REF.*!= "dev"/s,
+  );
+});
 
 test("Cloudflare fork previews download static PR files without unsafe checkout", () => {
   assert.match(previewWorkflow, /pull_request_target:/);
