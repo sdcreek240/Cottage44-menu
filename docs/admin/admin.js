@@ -41,6 +41,7 @@ const nameInput = document.querySelector("#plate-name");
 const descriptionInput = document.querySelector("#plate-description");
 const priceInput = document.querySelector("#plate-price");
 const imageInput = document.querySelector("#plate-image");
+const cameraImageInput = document.querySelector("#plate-camera-image");
 const imageNote = document.querySelector("#image-note");
 const imagePreview = document.querySelector("#image-preview");
 const imagePreviewImage = document.querySelector("#image-preview-image");
@@ -50,7 +51,11 @@ const historyList = document.querySelector("#history-list");
 const historyState = document.querySelector("#history-state");
 const historyRetryButton = document.querySelector("#history-retry");
 const historyLoadMoreButton = document.querySelector("#history-load-more");
+const historySearchInput = document.querySelector("#history-search");
+const historyEventFilter = document.querySelector("#history-event-filter");
 const todaySelect = document.querySelector("#today-select");
+const todayPlateSearch = document.querySelector("#today-plate-search");
+const todayPlateSearchWrap = document.querySelector("#today-plate-search-wrap");
 const todaySummary = document.querySelector("#today-summary");
 const serviceDate = document.querySelector("#service-date");
 const setTodayButton = document.querySelector("#set-today");
@@ -58,6 +63,11 @@ const newPlateButton = document.querySelector("#new-plate");
 const cancelEditButton = document.querySelector("#cancel-edit");
 const scheduleDateInput = document.querySelector("#schedule-date");
 const scheduleSelect = document.querySelector("#schedule-select");
+const planPlateSearch = document.querySelector("#plan-plate-search");
+const planPlateSearchWrap = document.querySelector("#plan-plate-search-wrap");
+const libraryPlateSearch = document.querySelector("#library-plate-search");
+const libraryPlateSearchWrap = document.querySelector("#library-plate-search-wrap");
+const librarySearchEmpty = document.querySelector("#library-search-empty");
 const saveScheduleButton = document.querySelector("#save-schedule");
 const savePlateButton = document.querySelector("#save-plate");
 const averagePriceButton = document.querySelector("#average-price");
@@ -71,6 +81,7 @@ let historyEvents = [];
 let historyNextBefore = null;
 let historyHasMore = false;
 let todayPlateId = null;
+let selectedImageFile = null;
 let savedImageUrl = null;
 let previewObjectUrl = null;
 let statusTimer = null;
@@ -79,6 +90,7 @@ let toastAudioUnlocking = false;
 let toastAudioUnlocked = false;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2000;
+const PLATE_SEARCH_THRESHOLD = 8;
 const SOURCE_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -323,6 +335,58 @@ function formatPrice(priceCents) {
   }).format(priceCents / 100);
 }
 
+function formatServiceDate(isoDate) {
+  if (typeof isoDate !== "string") {
+    return "";
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) {
+    return isoDate;
+  }
+  const [, year, month, day] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (
+    date.getUTCFullYear() !== Number(year) ||
+    date.getUTCMonth() !== Number(month) - 1 ||
+    date.getUTCDate() !== Number(day)
+  ) {
+    return isoDate;
+  }
+  return `${day}/${month}/${year}`;
+}
+
+function formatRecordedAt(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Africa/Johannesburg",
+  }).format(date);
+}
+
+function normalizeSearch(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function matchingPlates(searchText, selectedId = "") {
+  const query = normalizeSearch(searchText);
+  return plates.filter((plate) =>
+    !query ||
+    plate.id === selectedId ||
+    normalizeSearch(`${plate.name} ${plate.description}`).includes(query)
+  );
+}
+
 function updateTodaySummary() {
   const selected = plates.find((plate) => plate.id === todayPlateId);
   todaySummary.textContent = selected
@@ -331,7 +395,9 @@ function updateTodaySummary() {
   clearTodayButton.hidden = !selected;
 }
 
-function renderPlateList() {
+function renderPlateList(preserveSelection = false) {
+  const todaySelection = preserveSelection ? todaySelect.value : todayPlateId ?? "";
+  const scheduleSelection = preserveSelection ? scheduleSelect.value : "";
   plateList.replaceChildren();
   todaySelect.replaceChildren();
   const placeholder = document.createElement("option");
@@ -339,13 +405,17 @@ function renderPlateList() {
   placeholder.textContent = plates.length ? "Select a saved plate" : "Save a plate first";
   todaySelect.append(placeholder);
 
-  for (const plate of plates) {
+  for (const plate of matchingPlates(todayPlateSearch.value, todaySelection)) {
     const option = document.createElement("option");
     option.value = plate.id;
     option.textContent = plate.name;
-    option.selected = plate.id === todayPlateId;
+    option.selected = plate.id === todaySelection;
     todaySelect.append(option);
+  }
+  todaySelect.value = todaySelection;
 
+  const libraryPlates = matchingPlates(libraryPlateSearch.value);
+  for (const plate of libraryPlates) {
     const item = document.createElement("li");
     item.className = "plate-item";
     const details = document.createElement("div");
@@ -377,6 +447,11 @@ function renderPlateList() {
     item.append(details, actions);
     plateList.append(item);
   }
+  librarySearchEmpty.hidden = !libraryPlateSearch.value || libraryPlates.length > 0;
+  const shouldShowSearch = plates.length > PLATE_SEARCH_THRESHOLD;
+  todayPlateSearchWrap.hidden = !shouldShowSearch;
+  planPlateSearchWrap.hidden = !shouldShowSearch;
+  libraryPlateSearchWrap.hidden = !shouldShowSearch;
   setTodayButton.disabled = plates.length === 0;
   averagePriceButton.disabled = plates.length === 0;
   scheduleSelect.replaceChildren();
@@ -384,12 +459,13 @@ function renderPlateList() {
   schedulePlaceholder.value = "";
   schedulePlaceholder.textContent = "Not planned";
   scheduleSelect.append(schedulePlaceholder);
-  for (const plate of plates) {
+  for (const plate of matchingPlates(planPlateSearch.value, scheduleSelection)) {
     const option = document.createElement("option");
     option.value = plate.id;
     option.textContent = plate.name;
     scheduleSelect.append(option);
   }
+  scheduleSelect.value = scheduleSelection;
   updateTodaySummary();
   updateScheduleSummary();
 }
@@ -397,9 +473,9 @@ function renderPlateList() {
 function updateScheduleSummary() {
   const selected = plates.find((plate) => plate.id === scheduleSelect.value);
   scheduleSummary.textContent = selected && scheduleDateInput.value
-    ? `${selected.name} is ready to be planned for ${scheduleDateInput.value}.`
+    ? `${selected.name} is ready to be planned for ${formatServiceDate(scheduleDateInput.value)}.`
     : scheduleDateInput.value
-    ? `No plate is planned for ${scheduleDateInput.value}.`
+    ? `No plate is planned for ${formatServiceDate(scheduleDateInput.value)}.`
     : "Choose a date.";
 }
 
@@ -429,38 +505,43 @@ function addDays(value, amount) {
   return date.toISOString().slice(0, 10);
 }
 
-function renderWeeklyPlan() {
+function renderWeeklyPlan(preserveSelection = false) {
+  const currentSelections = preserveSelection
+    ? new Map([...weeklyPlanList.children].map((row) => [
+        row.dataset.serviceDate,
+        row.children[1].value,
+      ]))
+    : new Map();
   weeklyPlanList.replaceChildren();
-  if (!serviceDate.textContent) {
+  if (!serviceDate.dataset.isoDate) {
     return;
   }
   const assignments = new Map(upcomingAssignments.map((item) => [item.serviceDate, item.plate]));
-  for (const [index, date] of planningWeekdays(serviceDate.textContent).entries()) {
+  for (const [index, date] of planningWeekdays(serviceDate.dataset.isoDate).entries()) {
     const row = document.createElement("div");
     row.className = "weekly-plan-row";
     row.dataset.serviceDate = date;
     row.dataset.dayNumber = String(index + 2);
     const label = document.createElement("label");
-    const formattedDate = new Intl.DateTimeFormat("en-ZA", {
+    const weekday = new Intl.DateTimeFormat("en-GB", {
       weekday: "long",
-      day: "numeric",
-      month: "short",
-      timeZone: "Africa/Johannesburg",
-    }).format(new Date(`${date}T12:00:00.000Z`));
-    label.textContent = `Day ${index + 2} · ${formattedDate}`;
+      timeZone: "UTC",
+    }).format(new Date(`${date}T00:00:00.000Z`));
+    label.textContent = `Day ${index + 2} · ${weekday} · ${formatServiceDate(date)}`;
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Saved plate for ${label.textContent}`);
     const empty = document.createElement("option");
     empty.value = "";
     empty.textContent = "Not planned";
     select.append(empty);
-    for (const plate of plates) {
+    const existing = plates.find((plate) => plate.id === currentSelections.get(date))
+      ?? assignments.get(date);
+    for (const plate of matchingPlates(planPlateSearch.value, existing?.id ?? "")) {
       const option = document.createElement("option");
       option.value = plate.id;
       option.textContent = plate.name;
       select.append(option);
     }
-    const existing = assignments.get(date);
     select.value = existing?.id ?? "";
     const button = document.createElement("button");
     button.type = "button";
@@ -483,8 +564,8 @@ function renderWeeklyPlan() {
         await loadDashboard();
         setStatus(
           select.value
-            ? `${result.today.plate.name} planned for ${date}.`
-            : `No plate planned for ${date}.`,
+            ? `${result.today.plate.name} planned for ${formatServiceDate(result.today.serviceDate)}.`
+            : `No plate planned for ${formatServiceDate(result.serviceDate)}.`,
           "success",
         );
       } catch (error) {
@@ -498,32 +579,126 @@ function renderWeeklyPlan() {
   }
 }
 
+function historyCategory(eventType) {
+  if (eventType === "assigned" || eventType === "backfilled") {
+    return "assignment";
+  }
+  if (eventType === "changed" || eventType === "cleared") {
+    return "plan";
+  }
+  return "library";
+}
+
+function historyTypeLabel(eventType) {
+  return {
+    assigned: "Plate assigned",
+    backfilled: "Earlier assignment",
+    changed: "Plan changed",
+    cleared: "Plan cleared",
+    plate_deleted: "Plate removed from library",
+  }[eventType] ?? "History event";
+}
+
+function historySummary(item) {
+  const previousName = item.previousPlate?.name;
+  const currentName = item.currentPlate?.name;
+  if (item.eventType === "changed") {
+    return `Changed from ${previousName || "no plate"} to ${currentName || "no plate"}`;
+  }
+  if (item.eventType === "cleared") {
+    return `${previousName || "Plate"} removed from the plan`;
+  }
+  if (item.eventType === "plate_deleted") {
+    return `${previousName || "Plate"} deleted from the library; historical record kept`;
+  }
+  return currentName || "Plate assignment";
+}
+
+function historySearchText(item) {
+  return normalizeSearch([
+    item.serviceDate,
+    formatServiceDate(item.serviceDate),
+    item.eventType,
+    historyTypeLabel(item.eventType),
+    historySummary(item),
+    item.occurredAt,
+    formatRecordedAt(item.occurredAt),
+    ...[item.previousPlate, item.currentPlate]
+      .filter(Boolean)
+      .flatMap((plate) => [
+        plate.name,
+        plate.description,
+        plate.priceCents,
+        formatPrice(plate.priceCents),
+      ]),
+  ].join(" "));
+}
+
+function historySnapshotLabel(label, plate) {
+  if (!plate) {
+    return "";
+  }
+  const parts = [plate.name, plate.description, formatPrice(plate.priceCents)]
+    .filter(Boolean);
+  return `${label}: ${parts.join(" · ")}`;
+}
+
 function renderHistory() {
   historyList.replaceChildren();
-  for (const item of historyEvents) {
+  const query = normalizeSearch(historySearchInput.value);
+  const category = historyEventFilter.value || "all";
+  const visibleEvents = historyEvents
+    .filter((item) =>
+      (category === "all" || historyCategory(item.eventType) === category) &&
+      (!query || historySearchText(item).includes(query))
+    )
+    .sort((left, right) =>
+      right.serviceDate.localeCompare(left.serviceDate) ||
+      right.occurredAt.localeCompare(left.occurredAt) ||
+      right.id - left.id
+    );
+
+  for (const item of visibleEvents) {
     const row = document.createElement("li");
     row.className = "history-item";
     const details = document.createElement("div");
     details.className = "history-item__details";
+    const type = document.createElement("span");
+    type.className = `history-item__type history-item__type--${historyCategory(item.eventType)}`;
+    type.textContent = historyTypeLabel(item.eventType);
     const date = document.createElement("span");
-    date.className = "eyebrow";
-    date.textContent = item.serviceDate;
+    date.className = "history-item__date";
+    date.textContent = `Service date · ${formatServiceDate(item.serviceDate)}`;
     const name = document.createElement("span");
     name.className = "history-item__name";
-    const previousName = item.previousPlate?.name;
-    const currentName = item.currentPlate?.name;
-    if (item.eventType === "changed") {
-      name.textContent = `${previousName || "No plate"} changed to ${currentName || "no plate"}`;
-    } else if (item.eventType === "cleared") {
-      name.textContent = `${previousName || "Plate"} — plan cleared`;
-    } else if (item.eventType === "plate_deleted") {
-      name.textContent = `${previousName || "Plate"} — removed from library; history kept`;
-    } else {
-      name.textContent = currentName || "Plate assignment";
+    name.textContent = historySummary(item);
+    details.append(type, date, name);
+    for (const [label, plate] of [
+      ["Before", item.previousPlate],
+      ["Plate", item.currentPlate],
+    ]) {
+      const snapshot = historySnapshotLabel(label, plate);
+      if (snapshot) {
+        const snapshotDetails = document.createElement("span");
+        snapshotDetails.className = "history-item__snapshot";
+        snapshotDetails.textContent = snapshot;
+        details.append(snapshotDetails);
+      }
     }
-    details.append(date, name);
+    const recorded = document.createElement("span");
+    recorded.className = "history-item__recorded";
+    recorded.textContent = `Recorded · ${formatRecordedAt(item.occurredAt)}`;
+    details.append(recorded);
     row.append(details);
     historyList.append(row);
+  }
+
+  if (!historyEvents.length) {
+    historyState.textContent = "No history yet. Assign a plate or make a change to start your record.";
+  } else if (!visibleEvents.length) {
+    historyState.textContent = `No loaded history entries match. Search covers ${historyEvents.length} loaded entries${historyHasMore ? "; load older history to search further back" : ""}.`;
+  } else {
+    historyState.textContent = `${visibleEvents.length} of ${historyEvents.length} loaded history ${historyEvents.length === 1 ? "entry" : "entries"} shown. ${historyHasMore ? "Search covers loaded entries only; load older history to search further back." : "Dates are DD/MM/YYYY; newest service dates first."}`;
   }
 }
 
@@ -544,9 +719,6 @@ async function loadHistory(before = null, append = false) {
     historyEvents = append ? [...historyEvents, ...result.events] : result.events;
     historyHasMore = result.hasMore;
     historyNextBefore = result.nextBefore;
-    historyState.textContent = historyEvents.length
-      ? `${historyEvents.length} history ${historyEvents.length === 1 ? "entry" : "entries"}.`
-      : "No history yet. Assign a plate or make a change to start your record.";
     renderHistory();
   } catch (error) {
     historyState.textContent = error.message;
@@ -568,7 +740,8 @@ async function loadDashboard() {
     plates = catalog.plates;
     upcomingAssignments = daily.upcoming;
     todayPlateId = daily.today?.id ?? null;
-    serviceDate.textContent = daily.serviceDate;
+    serviceDate.dataset.isoDate = daily.serviceDate;
+    serviceDate.textContent = formatServiceDate(daily.serviceDate);
     scheduleDateInput.min = daily.serviceDate;
     scheduleDateInput.max = addDays(daily.serviceDate, 365);
     scheduleDateInput.value ||= daily.serviceDate;
@@ -610,12 +783,12 @@ saveScheduleButton.addEventListener("click", async () => {
     await loadDashboard();
     setStatus(
       scheduleSelect.value
-        ? `${result.today.plate.name} planned for ${result.today.serviceDate}.`
-        : `No plate planned for ${result.serviceDate}.`,
+        ? `${result.today.plate.name} planned for ${formatServiceDate(result.today.serviceDate)}.`
+        : `No plate planned for ${formatServiceDate(result.serviceDate)}.`,
       "success",
     );
   } catch (error) {
-    setStatus(`Could not save ${scheduleDateInput.value}. ${error.message}`, "error");
+    setStatus(`Could not save ${formatServiceDate(scheduleDateInput.value)}. ${error.message}`, "error");
   } finally {
     endBusy(saveScheduleButton);
   }
@@ -624,7 +797,10 @@ saveScheduleButton.addEventListener("click", async () => {
 function resetForm() {
   plateForm.reset();
   plateIdInput.value = "";
+  selectedImageFile = null;
   savedImageUrl = null;
+  imageInput.value = "";
+  cameraImageInput.value = "";
   imageNote.textContent = "Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).";
   clearImagePreview();
   cancelEditButton.hidden = true;
@@ -661,7 +837,9 @@ function editPlate(plate) {
   nameInput.value = plate.name;
   descriptionInput.value = plate.description;
   priceInput.value = (plate.priceCents / 100).toFixed(2);
+  selectedImageFile = null;
   imageInput.value = "";
+  cameraImageInput.value = "";
   savedImageUrl = plate.imageUrl;
   imageNote.textContent = savedImageUrl
     ? "Saved photo shown below. It will be kept unless you choose a replacement."
@@ -681,24 +859,27 @@ function scrollToPlateEditor() {
   plateEditorPanel.scrollIntoView({ behavior, block: "start" });
 }
 
-imageInput.addEventListener("change", () => {
-  const image = imageInput.files[0];
+function clearImageFileInputs() {
+  imageInput.value = "";
+  cameraImageInput.value = "";
+}
+
+function handleImageSelection(sourceInput) {
+  const image = sourceInput.files[0];
   if (!image) {
-    showImagePreview(savedImageUrl, savedImageUrl ? "Saved plate photo" : "");
-    imageNote.textContent = savedImageUrl
-      ? "Saved photo will be kept. Choose another photo to replace it."
-      : "No photo selected. This plate will be saved without a photo.";
     return;
   }
   if (!SOURCE_IMAGE_TYPES.has(image.type.toLowerCase())) {
-    imageInput.value = "";
+    selectedImageFile = null;
+    clearImageFileInputs();
     showImagePreview(savedImageUrl, savedImageUrl ? "Saved plate photo" : "");
     imageNote.textContent = "Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).";
     setStatus("Choose a photo such as JPEG, PNG, WebP, or HEIC.", "error");
     return;
   }
   if (image.size < 1) {
-    imageInput.value = "";
+    selectedImageFile = null;
+    clearImageFileInputs();
     showImagePreview(savedImageUrl, savedImageUrl ? "Saved plate photo" : "");
     imageNote.textContent = "Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).";
     setStatus("The selected photo is empty. Choose another photo.", "error");
@@ -707,14 +888,20 @@ imageInput.addEventListener("change", () => {
   if (previewObjectUrl) {
     URL.revokeObjectURL(previewObjectUrl);
   }
+  selectedImageFile = image;
+  clearImageFileInputs();
   const localPreviewUrl = URL.createObjectURL(image);
   showImagePreview(localPreviewUrl, `Selected photo: ${image.name}`, true);
   imageNote.textContent = `Ready to upload: ${image.name}. Save the plate to resize and apply this photo.`;
   setStatus("");
-});
+}
+
+imageInput.addEventListener("change", () => handleImageSelection(imageInput));
+cameraImageInput.addEventListener("change", () => handleImageSelection(cameraImageInput));
 
 clearImageButton.addEventListener("click", () => {
-  imageInput.value = "";
+  selectedImageFile = null;
+  clearImageFileInputs();
   showImagePreview(savedImageUrl, savedImageUrl ? "Saved plate photo" : "");
   imageNote.textContent = savedImageUrl
     ? "Saved photo will be kept. Choose another photo to replace it."
@@ -723,7 +910,7 @@ clearImageButton.addEventListener("click", () => {
 });
 
 async function uploadSelectedImage() {
-  const image = imageInput.files[0];
+  const image = selectedImageFile;
   if (!image) {
     return savedImageUrl;
   }
@@ -1014,6 +1201,14 @@ setTodayButton.addEventListener("click", async () => {
 });
 
 todaySelect.addEventListener("change", updateTodaySummary);
+for (const input of [todayPlateSearch, planPlateSearch, libraryPlateSearch]) {
+  input.addEventListener("input", () => {
+    renderPlateList(true);
+    renderWeeklyPlan(true);
+  });
+}
+historySearchInput.addEventListener("input", renderHistory);
+historyEventFilter.addEventListener("change", renderHistory);
 historyRetryButton.addEventListener("click", () => loadHistory());
 historyLoadMoreButton.addEventListener("click", () =>
   loadHistory(historyNextBefore, true)

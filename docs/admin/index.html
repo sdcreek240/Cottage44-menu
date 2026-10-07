@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en-GB" data-theme="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -106,6 +106,10 @@
             </div>
             <p id="today-summary">No plate has been selected for today.</p>
             <label for="today-select">Choose a saved plate</label>
+            <div id="today-plate-search-wrap" class="conditional-search" hidden>
+              <label for="today-plate-search">Find a plate</label>
+              <input id="today-plate-search" type="search" placeholder="Search saved plates">
+            </div>
             <div class="inline-form">
               <select id="today-select" aria-label="Choose a saved plate for today"></select>
               <button id="set-today" class="button" type="button">Set as today’s plate</button>
@@ -121,9 +125,14 @@
               </div>
             </div>
             <p class="muted">Today is shown separately. Choose a future weekday and saved plate to prepare the next five service days.</p>
-            <label for="schedule-date">Date to plan</label>
+            <label for="schedule-date">Date to plan (DD/MM/YYYY)</label>
             <input id="schedule-date" type="date">
+            <p class="muted date-format-hint">Dates are shown as DD/MM/YYYY. Your device may display the date picker in its own format.</p>
             <label for="schedule-select">Saved plate for that date</label>
+            <div id="plan-plate-search-wrap" class="conditional-search" hidden>
+              <label for="plan-plate-search">Find a plate</label>
+              <input id="plan-plate-search" type="search" placeholder="Search saved plates">
+            </div>
             <div class="inline-form">
               <select id="schedule-select" aria-label="Choose a saved plate for the planned date"></select>
               <button id="save-schedule" class="button" type="button">Save this day</button>
@@ -164,8 +173,10 @@
                     <button id="average-price" class="button button--quiet" type="button" disabled>Use average</button>
                   </div>
                   <p class="muted">Optional: use the rounded average price of your saved plates.</p>
-                  <label for="plate-image">Food photo (optional)</label>
+                  <label for="plate-image">Choose a photo from your library (optional)</label>
                   <input id="plate-image" name="image" type="file" accept="image/*,.heic,.heif">
+                  <label for="plate-camera-image">Take a new picture</label>
+                  <input id="plate-camera-image" type="file" accept="image/*,.heic,.heif" capture="environment">
                   <p id="image-note" class="muted">Choose a photo from your camera or gallery. It will be resized and saved as a web-friendly image (up to 5 MB).</p>
                   <div id="image-preview" class="image-preview" hidden>
                     <img id="image-preview-image" alt="">
@@ -180,7 +191,12 @@
 
               <details class="panel collapsible">
                 <summary><span><span class="eyebrow">Plate management</span><strong id="saved-title">View / Edit / Delete Plates</strong></span><span class="summary-hint">Your saved plates</span></summary>
+                <div id="library-plate-search-wrap" class="conditional-search" hidden>
+                  <label for="library-plate-search">Find a saved plate</label>
+                  <input id="library-plate-search" type="search" placeholder="Search names or descriptions">
+                </div>
                 <ul id="plate-list" class="plate-list"></ul>
+                <p id="library-search-empty" class="muted" hidden>No saved plates match your search.</p>
               </details>
             </div>
           </section>
@@ -191,7 +207,22 @@
             <div class="group-heading">
               <p class="eyebrow">Permanent record</p>
               <h2 id="history-title">History</h2>
-              <p class="muted">Past plate changes stay here, even if a plate is removed from your library.</p>
+              <p class="muted">Newest changes first. Search or filter the history already loaded; load older entries to search further back. Past plate snapshots stay here even if a plate is removed from your library.</p>
+            </div>
+            <div class="history-controls">
+              <div>
+                <label for="history-search">Search history</label>
+                <input id="history-search" type="search" placeholder="Plate, date, description or event">
+              </div>
+              <div>
+                <label for="history-event-filter">Show</label>
+                <select id="history-event-filter">
+                  <option value="all">All events</option>
+                  <option value="assignment">Plate assignments</option>
+                  <option value="plan">Plan changes and clears</option>
+                  <option value="library">Plate removals</option>
+                </select>
+              </div>
             </div>
             <p id="history-state" role="status" aria-live="polite">History is loading…</p>
             <ol id="history-list" class="history-list"></ol>

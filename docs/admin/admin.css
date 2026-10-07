@@ -455,9 +455,79 @@ a:focus-visible {
   font-weight: 700;
 }
 
+.conditional-search {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.conditional-search label,
+.history-controls label {
+  margin-top: 0;
+}
+
+.date-format-hint {
+  margin-top: 0.35rem;
+}
+
+.history-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.38fr);
+  gap: 0.8rem;
+  margin: 1rem 0;
+}
+
+.history-controls > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.history-item {
+  align-items: flex-start;
+}
+
+.history-item__details {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.history-item__type {
+  width: fit-content;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.history-item__type--assignment {
+  border-color: var(--status-success);
+  color: var(--status-success);
+}
+
+.history-item__type--plan {
+  border-color: var(--status-info);
+  color: var(--status-info);
+}
+
+.history-item__type--library {
+  border-color: var(--status-warning);
+  color: var(--status-warning);
+}
+
+.history-item__date,
+.history-item__snapshot,
+.history-item__recorded {
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 42rem) {
   .weekly-plan-row,
-  .price-input-row {
+  .price-input-row,
+  .history-controls {
     grid-template-columns: 1fr;
   }
 }

@@ -69,6 +69,7 @@ const adminSelectors = [
   "#plate-description",
   "#plate-price",
   "#plate-image",
+  "#plate-camera-image",
   "#image-note",
   "#image-preview",
   "#image-preview-image",
@@ -78,7 +79,11 @@ const adminSelectors = [
   "#history-list",
   "#history-retry",
   "#history-load-more",
+  "#history-search",
+  "#history-event-filter",
   "#today-select",
+  "#today-plate-search",
+  "#today-plate-search-wrap",
   "#today-summary",
   "#service-date",
   "#set-today",
@@ -91,13 +96,18 @@ const adminSelectors = [
   "#email",
   "#schedule-date",
   "#schedule-select",
+  "#plan-plate-search",
+  "#plan-plate-search-wrap",
+  "#library-plate-search",
+  "#library-plate-search-wrap",
+  "#library-search-empty",
   "#save-schedule",
   "#schedule-summary",
   "#weekly-plan-list",
 ];
 
 test("admin theme defaults to dark and respects a saved shared theme", () => {
-  assert.match(adminHtml, /<html lang="en" data-theme="dark">/);
+  assert.match(adminHtml, /<html lang="en-GB" data-theme="dark">/);
   assert.deepEqual(initialAdminTheme(), { theme: "dark", themeColor: "#1c1a1a" });
   assert.deepEqual(initialAdminTheme("light"), { theme: "light", themeColor: "#f7f5ef" });
   assert.deepEqual(initialAdminTheme("dark"), { theme: "dark", themeColor: "#1c1a1a" });
@@ -152,7 +162,7 @@ test("admin dashboard navigation exposes the three grouped views", () => {
   assert.ok(planning < adminHtml.indexOf('id="schedule-date"'));
   assert.ok(library < adminHtml.indexOf('id="plate-form"'));
   assert.ok(history < adminHtml.indexOf('id="history-list"'));
-  assert.match(adminHtml, /Past plate changes stay here, even if a plate is removed from your library/);
+  assert.match(adminHtml, /search further back\. Past plate snapshots stay here/);
   assert.match(adminHtml, /id="history-state"[^>]*aria-live="polite"/);
 });
 
@@ -167,11 +177,27 @@ test("admin dashboard layout switches from grouped desktop columns to a narrow s
   assert.match(adminCss, /\.dashboard-nav\s*\{[\s\S]*?flex-wrap:\s*wrap/);
   assert.match(adminCss, /\.dashboard-view\[hidden\]\s*\{[\s\S]*?display:\s*none/);
   assert.match(adminCss, /\.today-plan-view\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,/);
-  assert.match(adminCss, /@media \(max-width:\s*42rem\)[\s\S]*?\.weekly-plan-row,\s*\.price-input-row\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
+  assert.match(adminCss, /@media \(max-width:\s*42rem\)[\s\S]*?\.weekly-plan-row,\s*\.price-input-row,\s*\.history-controls\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
   assert.match(adminCss, /@media \(max-width:\s*600px\)[\s\S]*?\.dashboard-nav a\s*\{[\s\S]*?flex:\s*1 1 100%/);
   assert.match(adminCss, /@media \(max-width:\s*600px\)[\s\S]*?\.plate-item__actions \.button\s*\{[\s\S]*?min-height:\s*2\.8rem/);
   assert.match(adminCss, /\.plate-editor-panel\s*\{[\s\S]*?scroll-margin-top:\s*1rem/);
   assert.match(adminCss, /\.plate-editor-panel--editing\s*\{[\s\S]*?border-color:\s*var\(--accent\)/);
+});
+
+test("admin dates and photo sources explain locale-safe input and native camera behavior", () => {
+  assert.match(adminHtml, /<html lang="en-GB"/);
+  assert.match(adminHtml, /Date to plan \(DD\/MM\/YYYY\)/);
+  assert.match(adminHtml, /id="schedule-date" type="date"/);
+  assert.match(adminHtml, /Your device may display the date picker in its own format/);
+  assert.match(adminHtml, /id="plate-image"[^>]*type="file"[^>]*accept="image\/\*[^"]*"/);
+  assert.match(adminHtml, /id="plate-camera-image"[^>]*type="file"[^>]*capture="environment"/);
+  assert.match(adminHtml, /Choose a photo from your library/);
+  assert.match(adminHtml, /Take a new picture/);
+  assert.match(adminHtml, /Newest changes first\.[\s\S]*load older entries to search further back/);
+  for (const value of ["all", "assignment", "plan", "library"]) {
+    assert.match(adminHtml, new RegExp(`<option value="${value}">`));
+  }
+  assert.match(adminHtml, /id="history-search" type="search"/);
 });
 
 class Element {
@@ -611,12 +637,20 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   );
   assert.equal(JSON.parse(signInCall.options.body).rememberMe, true);
   assert.equal(elements["#dashboard"].hidden, false);
+  assert.equal(elements["#service-date"].textContent, "07/10/2026");
+  assert.equal(elements["#service-date"].dataset.isoDate, "2026-10-07");
   assert.equal(elements["#today-plan-view"].hidden, false);
   assert.equal(elements["#plate-library-view"].hidden, true);
   assert.equal(elements["#history-view"].hidden, true);
   assert.equal(elements["#nav-today-plan"].getAttribute("aria-current"), "page");
   assert.equal(elements["#average-price"].disabled, true, "average is unavailable before saving a plate");
+  assert.equal(elements["#today-plate-search-wrap"].hidden, true);
+  assert.equal(elements["#plan-plate-search-wrap"].hidden, true);
+  assert.equal(elements["#library-plate-search-wrap"].hidden, true);
   assert.equal(elements["#today-select"].children[0].textContent, "Save a plate first");
+  assert.equal(context.formatServiceDate("2026-10-07"), "07/10/2026");
+  assert.equal(context.formatServiceDate("2024-02-29"), "29/02/2024");
+  assert.equal(context.formatServiceDate("2026-02-30"), "2026-02-30");
   elements["#nav-plate-library"].listeners.click({ preventDefault() {} });
   assert.equal(elements["#today-plan-view"].hidden, true);
   assert.equal(elements["#plate-library-view"].hidden, false);
@@ -645,6 +679,77 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     [330, 220, 660, 880],
     "success toast schedules a distinct rising tone",
   );
+
+  const historyPlate = {
+    id: "2192d100-1951-4504-bd0f-a8393f2d80d4",
+    name: "Older Café special",
+    description: "Slow-cooked beef",
+    priceCents: 18900,
+  };
+  for (let index = 0; index < 101; index += 1) {
+    const eventType = ({
+      1: "changed",
+      2: "cleared",
+      3: "plate_deleted",
+      4: "backfilled",
+    })[index] ?? "assigned";
+    const previousPlate = ["changed", "cleared", "plate_deleted"].includes(eventType)
+      ? snapshot({ ...historyPlate, name: "Previous special" })
+      : null;
+    const currentPlate = ["assigned", "changed", "backfilled"].includes(eventType)
+      ? snapshot({ ...historyPlate, name: index === 0 ? "Older Café special" : `Plate ${index}` })
+      : null;
+    historyEvents.push({
+      id: nextHistoryId++,
+      serviceDate: index === 0 ? "2024-01-05" : "2025-01-05",
+      eventType,
+      previousPlate,
+      currentPlate,
+      occurredAt: `2025-01-05T10:${String(index % 60).padStart(2, "0")}:00.000Z`,
+    });
+  }
+  await context.loadHistory();
+  assert.equal(elements["#history-list"].children.length, 100);
+  assert.match(elements["#history-state"].textContent, /100 loaded history entries/);
+  assert.equal(elements["#history-load-more"].hidden, false);
+  elements["#history-search"].value = "cafe";
+  elements["#history-search"].listeners.input();
+  assert.equal(elements["#history-list"].children.length, 0);
+  assert.match(elements["#history-state"].textContent, /load older history to search further back/);
+  await elements["#history-load-more"].listeners.click();
+  assert.equal(elements["#history-list"].children.length, 1);
+  const historyRowText = (row) =>
+    row.children[0].children.map((child) => child.textContent).join(" ");
+  assert.match(historyRowText(elements["#history-list"].children[0]), /Older Café special/);
+  assert.match(historyRowText(elements["#history-list"].children[0]), /Service date · 05\/01\/2024/);
+  assert.match(historyRowText(elements["#history-list"].children[0]), /Plate assigned/);
+  assert.equal(elements["#history-load-more"].hidden, true);
+  assert.match(elements["#history-state"].textContent, /101 loaded history entries/);
+
+  elements["#history-search"].value = "";
+  elements["#history-event-filter"].value = "plan";
+  elements["#history-event-filter"].listeners.change();
+  assert.equal(elements["#history-list"].children.length, 2);
+  assert.ok(elements["#history-list"].children.every((row) =>
+    /Plan (changed|cleared)/.test(historyRowText(row))));
+  elements["#history-event-filter"].value = "library";
+  elements["#history-event-filter"].listeners.change();
+  assert.equal(elements["#history-list"].children.length, 1);
+  assert.match(historyRowText(elements["#history-list"].children[0]), /Plate removed from library/);
+  elements["#history-event-filter"].value = "assignment";
+  elements["#history-event-filter"].listeners.change();
+  assert.equal(elements["#history-list"].children.length, 98);
+  assert.ok(elements["#history-list"].children.every((row) =>
+    /Plate assigned|Earlier assignment/.test(historyRowText(row))));
+  elements["#history-event-filter"].value = "all";
+  elements["#history-event-filter"].listeners.change();
+  assert.equal(elements["#history-list"].children.length, 101);
+  assert.match(historyRowText(elements["#history-list"].children.at(-1)), /Older Café special/);
+  assert.match(historyRowText(elements["#history-list"].children[0]), /Service date · 05\/01\/2025/);
+  assert.match(historyRowText(elements["#history-list"].children[0]), /Plate 59/);
+  historyEvents = [];
+  await context.loadHistory();
+  assert.match(elements["#history-state"].textContent, /No history yet/);
 
   elements["#plate-name"].value = "Cottage burger";
   elements["#plate-description"].value = "Beef and chips";
@@ -729,6 +834,55 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.equal(JSON.parse(updateCall.options.body).imageUrl, imageUrl);
   assert.equal(elements["#plate-editor-panel"].classList.contains("plate-editor-panel--editing"), false);
   assert.equal(elements["#editor-title"].textContent, "Create plate");
+  savedPlates.push({
+    ...savedPlates[0],
+    id: "a4df7fd4-1e8a-46a3-83c6-3c717e0ecf27",
+    name: "Soup",
+    description: "Tomato and basil",
+  });
+  for (let index = 0; index < 8; index += 1) {
+    savedPlates.push({
+      ...savedPlates[0],
+      id: `a4df7fd4-1e8a-46a3-83c6-3c717e0ecf2${index}`,
+      name: `Large list plate ${index}`,
+    });
+  }
+  await context.loadDashboard();
+  assert.equal(elements["#today-plate-search-wrap"].hidden, false);
+  assert.equal(elements["#plan-plate-search-wrap"].hidden, false);
+  assert.equal(elements["#library-plate-search-wrap"].hidden, false);
+  elements["#today-select"].value = "";
+  elements["#today-plate-search"].value = "soup";
+  elements["#today-plate-search"].listeners.input();
+  assert.deepEqual(elements["#today-select"].children.map((option) => option.textContent), [
+    "Select a saved plate",
+    "Soup",
+  ]);
+  elements["#plan-plate-search"].value = "soup";
+  elements["#plan-plate-search"].listeners.input();
+  assert.deepEqual(elements["#schedule-select"].children.map((option) => option.textContent), [
+    "Not planned",
+    "Soup",
+  ]);
+  assert.deepEqual(
+    elements["#weekly-plan-list"].children[0].children[1].children.map((option) => option.textContent),
+    ["Not planned", "Soup"],
+  );
+  elements["#library-plate-search"].value = "soup";
+  elements["#library-plate-search"].listeners.input();
+  assert.equal(elements["#plate-list"].children.length, 1);
+  assert.match(elements["#plate-list"].children[0].children[0].children[0].textContent, /Soup/);
+  elements["#library-plate-search"].value = "not on menu";
+  elements["#library-plate-search"].listeners.input();
+  assert.equal(elements["#plate-list"].children.length, 0);
+  assert.equal(elements["#library-search-empty"].hidden, false);
+  savedPlates = savedPlates.slice(0, 1);
+  elements["#today-plate-search"].value = "";
+  elements["#plan-plate-search"].value = "";
+  elements["#library-plate-search"].value = "";
+  await context.loadDashboard();
+  assert.equal(elements["#today-plate-search-wrap"].hidden, true);
+
   historyEvents.push({
     id: nextHistoryId++,
     serviceDate: "2026-09-07",
@@ -786,7 +940,10 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     "2026-10-14",
   ]);
   assert.ok(displayedWeekdays.every((date) => date > "2026-10-07"));
-  assert.match(elements["#weekly-plan-list"].children[0].children[0].textContent, /^Day 2 · /);
+  assert.match(
+    elements["#weekly-plan-list"].children[0].children[0].textContent,
+    /^Day 2 · Thursday · 08\/10\/2026$/,
+  );
   assert.match(elements["#weekly-plan-list"].children[4].children[0].textContent, /^Day 6 · /);
   const weeklyRow = elements["#weekly-plan-list"].children[0];
   const weeklySelect = weeklyRow.children[1];
@@ -806,7 +963,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   });
   assert.equal(elements["#status"].dataset.kind, "success");
   assert.equal(elements["#status-icon"].textContent, "✓");
-  assert.equal(elements["#status-message"].textContent, "No plate planned for 2026-10-08.");
+  assert.equal(elements["#status-message"].textContent, "No plate planned for 08/10/2026.");
   assert.equal(elements["#weekly-plan-list"].children[0].children[1].value, "");
   assert.equal(elements["#today-summary"].textContent, "No plate has been selected for today.");
 
@@ -878,13 +1035,15 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   await elements["#save-schedule"].listeners.click();
   assert.equal(elements["#status"].dataset.kind, "error");
   assert.equal(elements["#status-icon"].textContent, "×");
+  assert.match(elements["#status-message"].textContent, /08\/10\/2026/);
+  assert.doesNotMatch(elements["#status-message"].textContent, /2026-10-08/);
   failSchedule = false;
 
   elements["#schedule-date"].listeners.change();
   elements["#schedule-select"].value = savedPlates[0].id;
   await elements["#save-schedule"].listeners.click();
   assert.equal(elements["#schedule-select"].value, savedPlates[0].id);
-  assert.match(elements["#status-message"].textContent, /planned for 2026-10-08/);
+  assert.match(elements["#status-message"].textContent, /planned for 08\/10\/2026/);
   elements["#schedule-select"].value = "";
   await elements["#save-schedule"].listeners.click();
   assert.deepEqual(JSON.parse(calls.findLast(({ url, options }) =>
@@ -894,7 +1053,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     plateId: null,
   });
   assert.equal(elements["#schedule-select"].value, "");
-  assert.match(elements["#status-message"].textContent, /No plate planned for 2026-10-08/);
+  assert.match(elements["#status-message"].textContent, /No plate planned for 08\/10\/2026/);
 
   const latestWeeklyRow = elements["#weekly-plan-list"].children[0];
   const latestWeeklySelect = latestWeeklyRow.children[1];
@@ -916,10 +1075,10 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   await deleteButton.listeners.click();
   assert.equal(elements["#plate-list"].children.length, 0);
   const retainedHistory = elements["#history-list"].children.map(
-    (item) => item.children[0].children[1].textContent,
+    (item) => item.children[0].children.map((child) => child.textContent).join(" "),
   );
-  assert.ok(retainedHistory.includes("Cottage burger"));
-  assert.ok(retainedHistory.some((item) => /removed from library; history kept/.test(item)));
+  assert.ok(retainedHistory.some((item) => item.includes("Cottage burger")));
+  assert.ok(retainedHistory.some((item) => /deleted from the library; historical record kept/.test(item)));
   deleteButton.disabled = true;
   await deleteButton.listeners.click();
   deleteButton.disabled = false;
@@ -1018,12 +1177,12 @@ test("admin UI converts HEIC and large camera photos before upload", async () =>
 
   vm.runInContext(adminScript, context, { filename: "docs/admin/admin.js" });
   await new Promise(setImmediate);
-  elements["#plate-image"].files = [{
+  elements["#plate-camera-image"].files = [{
     name: "camera.heic",
     type: "image/heic",
     size: 12 * 1024 * 1024,
   }];
-  elements["#plate-image"].listeners.change();
+  elements["#plate-camera-image"].listeners.change();
   assert.equal(elements["#image-preview"].hidden, false);
 
   elements["#plate-name"].value = "Camera plate";
