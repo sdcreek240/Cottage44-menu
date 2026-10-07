@@ -42,11 +42,15 @@ test("production release PRs must originate from dev", () => {
   );
 });
 
-test("Cloudflare fork previews download static PR files without unsafe checkout", () => {
+test("Cloudflare fork previews deploy the application without unsafe checkout", () => {
   assert.match(previewWorkflow, /pull_request_target:/);
   assert.match(previewWorkflow, /zipball\/refs\/pull\/\$\{PR_NUMBER\}\/merge/);
   assert.match(previewWorkflow, /cp -R "\$source_dir\/docs\/\." preview\//);
-  assert.match(previewWorkflow, /pages deploy preview/);
+  assert.match(previewWorkflow, /cp -R "\$source_dir\/functions" preview\//);
+  assert.match(previewWorkflow, /environment: Cottage44_menu/);
+  assert.match(previewWorkflow, /wranglerVersion: 4\.148\.0/);
+  assert.match(previewWorkflow, /pages deploy \. --project-name=cottage44-menu-pages/);
+  assert.match(previewWorkflow, /api\/health/);
   assert.match(
     previewWorkflow,
     /https:\/\/pr-\$\{\{ github\.event\.pull_request\.number \}\}\.cottage44-menu-pages\.pages\.dev/,
