@@ -12,8 +12,19 @@ static file server.
 ## Backend foundation
 
 Cloudflare Pages Functions provide the API and owner administration. The
-public menu reads only today's plate; `/admin/` supports owner sign-in, saved
-plates, image uploads, date history, and setting today's plate. Supabase Auth
+public menu reads only today's plate; `/admin/` supports owner sign-in, today's
+plate, upcoming planning, a reusable plate library, permanent assignment
+history, and image uploads. Admin dates are presented as DD/MM/YYYY while the
+date picker and API retain their ISO value; the native picker may follow the
+device's locale. Plate photos can be chosen from the photo library or taken
+directly with the device camera, using the same resize/upload flow. Plan Ahead
+shows the next five future weekdays alongside today's separate assignment; the
+plate editor can use a rounded average of saved prices, and today's assignment
+can be cleared from the server. History is ordered by service date, distinguishes
+assignments from plan and library changes, and searches/filter only the pages
+already loaded. Search fields for plate choices and the library appear only for
+larger lists.
+Supabase Auth
 password tokens are held in a Secure/HttpOnly/SameSite cookie and are never
 stored in browser local storage. Database and Storage RLS enforce the owner
 email independently of the UI. See

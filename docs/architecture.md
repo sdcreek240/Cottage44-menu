@@ -55,9 +55,9 @@ Postgres. The public API exposes `GET /api/health` and
 assigned. A populated response contains only the plate ID, service date, name,
 description, price in cents, and optional HTTPS image URL. Owner routes under
 `/api/admin/` provide sign-in, plate create/update/delete, image upload,
-history, and today's assignment. They return no database errors, internal
-columns, stack traces, or credentials. The browser does not access Supabase
-directly.
+today's assignment, upcoming planning, and paged permanent assignment history.
+They return no database errors, internal columns, stack traces, or credentials.
+The browser does not access Supabase directly.
 
 The Functions use the project URL and a Supabase publishable key from runtime
 bindings. The public API exposes only the current South African service date
@@ -108,9 +108,18 @@ Use migrations for the schema. The initial migration creates `plates` and
 and a primary key ensuring only one plate per service date. Its public RLS
 policies allow `anon` to select only the current South African service date
 and the referenced plate. It grants no insert, update, or delete permissions.
-The owner migration grants authenticated catalog/history access and owner-only
-plate and daily-assignment mutations. The history endpoint returns at most the
-most recent 365 daily assignments; saved catalog plates remain reusable.
+The owner migrations grant authenticated catalog access and owner-only plate
+and daily-assignment mutations. `daily_plates` holds only the current schedule;
+its owner API returns today and dates in the next year. The
+`plate_assignment_history` table stores append-only before/after plate snapshots
+for assignments, changes, clears, plate deletions, and existing rows backfilled
+by migration. Backfill can preserve only the current assignment saved for each
+date; changes overwritten before this migration cannot be reconstructed. The
+history table has no foreign key to the reusable `plates` library, and only the
+authenticated owner can read it through pages of 100 events. Deleting a plate
+assigned to today or a future date is blocked. A plate used only on past dates
+can be deleted; its old schedule row is detached and its full snapshot remains
+in history.
 
 Store images in the `cottage44-plates` Supabase Storage bucket, never in Git.
 The bucket is public-read because plate photos are intended for the public
