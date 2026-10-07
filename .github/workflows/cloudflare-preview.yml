@@ -68,6 +68,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          echo "Deploying the preview with Wrangler 4.148.0."
           npx --yes wrangler@4.148.0 pages deploy . \
             --project-name=cottage44-menu-pages \
             --branch="pr-${PREVIEW_PR_NUMBER}" |

@@ -318,6 +318,14 @@ a {
   font-size: 0.82rem;
 }
 
+.plate-day__countdown {
+  max-width: 36rem;
+  margin: 0.45rem auto 0;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .plate-day__content {
   overflow: hidden;
   border: 1px solid var(--line);

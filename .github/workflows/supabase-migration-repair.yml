@@ -57,8 +57,6 @@ jobs:
             --password "$SUPABASE_DB_PASSWORD"
 
       - name: Reconcile manually applied migration history
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           supabase migration repair \

@@ -34,12 +34,17 @@ const adminSelectors = [
   "#sign-in-panel",
   "#sign-in-form",
   "#sign-in-submit",
+  "#password",
+  "#toggle-password",
   "#recovery-request-panel",
   "#recovery-request-form",
   "#recovery-submit",
   "#password-reset-panel",
   "#password-reset-form",
   "#password-reset-submit",
+  "#new-password",
+  "#toggle-new-password",
+  "#toggle-confirm-password",
   "#forgot-password",
   "#back-to-sign-in",
   "#back-from-password-reset",
@@ -96,6 +101,8 @@ class Element {
     this.attributes = {};
     this.hidden = false;
     this.value = "";
+    this.type = "text";
+    this.name = "";
     this.files = [];
     this.listeners = {};
   }
@@ -116,6 +123,10 @@ class Element {
     this.attributes[name] = value;
   }
 
+  getAttribute(name) {
+    return this.attributes[name] ?? null;
+  }
+
   removeAttribute(name) {
     delete this.attributes[name];
   }
@@ -131,10 +142,24 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.doesNotMatch(adminScript, /localStorage|sessionStorage/);
   assert.match(adminHtml, /id="forgot-password"/);
   assert.match(adminHtml, /id="password-reset-form"/);
+  assert.match(adminHtml, /id="password"[^>]*autocomplete="current-password"/);
+  assert.match(adminHtml, /id="new-password"[^>]*autocomplete="new-password"/);
+  assert.match(adminHtml, /id="confirm-password"[^>]*autocomplete="new-password"/);
+  assert.match(adminHtml, /id="toggle-password"[^>]*aria-label="Show password"/);
+  assert.match(adminHtml, /id="toggle-new-password"[^>]*aria-controls="new-password"/);
+  assert.match(adminHtml, /id="toggle-confirm-password"[^>]*aria-pressed="false"/);
 
   const elements = Object.fromEntries(
     adminSelectors.map((selector) => [selector, new Element()]),
   );
+  for (const [toggle, input] of [
+    ["#toggle-password", "password"],
+    ["#toggle-new-password", "new-password"],
+    ["#toggle-confirm-password", "confirm-password"],
+  ]) {
+    elements[toggle].setAttribute("aria-controls", input);
+    elements[`#${input}`].type = "password";
+  }
   for (const selector of [
     "#dashboard",
     "#sign-out",
@@ -278,6 +303,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       }
       return elements[selector];
     },
+    getElementById: (id) => elements[`#${id}`],
     createElement: () => new Element(),
   };
   const context = vm.createContext({
@@ -303,6 +329,26 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     console,
   });
   vm.runInContext(adminScript, context, { filename: "docs/admin/admin.js" });
+  for (const [toggle, input] of [
+    ["#toggle-password", "#password"],
+    ["#toggle-new-password", "#new-password"],
+    ["#toggle-confirm-password", "#confirm-password"],
+  ]) {
+    elements[input].name = input === "#password"
+      ? "password"
+      : input === "#new-password"
+        ? "newPassword"
+        : "confirmPassword";
+    elements[toggle].listeners.click();
+    assert.equal(elements[input].type, "text");
+    assert.equal(elements[toggle].attributes["aria-pressed"], "true");
+    assert.equal(elements[toggle].textContent, "Hide");
+    assert.match(elements[toggle].attributes["aria-label"], /^Hide /);
+    elements[toggle].listeners.click();
+    assert.equal(elements[input].type, "password");
+    assert.equal(elements[toggle].attributes["aria-pressed"], "false");
+    assert.equal(elements[toggle].textContent, "Show");
+  }
 
   await elements["#sign-in-form"].listeners.submit({ preventDefault() {} });
   assert.equal(elements["#status-message"].textContent, "Email or password is incorrect.");
@@ -518,6 +564,7 @@ test("admin UI converts HEIC and large camera photos before upload", async () =>
   };
   const document = {
     querySelector: (selector) => elements[selector],
+    getElementById: (id) => elements[`#${id}`],
     createElement: (tagName) => tagName === "canvas" ? canvas : new Element(),
   };
   const context = vm.createContext({
@@ -583,6 +630,7 @@ test("recovery UI displays nested API errors as human-readable messages", async 
   const requests = [];
   const document = {
     querySelector: (selector) => elements[selector],
+    getElementById: (id) => elements[`#${id}`],
     createElement: () => new Element(),
   };
   const context = vm.createContext({
@@ -639,6 +687,7 @@ test("verified recovery links show the password form and submit the confirmed pa
   const requests = [];
   const document = {
     querySelector: (selector) => elements[selector],
+    getElementById: (id) => elements[`#${id}`],
     createElement: () => new Element(),
   };
   const context = vm.createContext({

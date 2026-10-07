@@ -225,6 +225,17 @@ select {
   color: var(--ink);
 }
 
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.password-field .button {
+  min-width: 4.5rem;
+}
+
 textarea {
   resize: vertical;
 }

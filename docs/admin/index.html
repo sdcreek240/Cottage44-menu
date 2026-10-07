@@ -36,7 +36,10 @@
           <label for="email">Email</label>
           <input id="email" name="email" type="email" autocomplete="username" required>
           <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <div class="password-field">
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button id="toggle-password" class="button button--quiet" type="button" aria-controls="password" aria-label="Show password" aria-pressed="false">Show</button>
+          </div>
           <label class="remember-option" for="remember-me">
             <input id="remember-me" name="rememberMe" type="checkbox" checked>
             Remember me for 30 days
@@ -62,9 +65,15 @@
         <p>Enter the new password you’d like to use for the owner account.</p>
         <form id="password-reset-form">
           <label for="new-password">New password</label>
-          <input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="8" maxlength="256" required>
+          <div class="password-field">
+            <input id="new-password" name="newPassword" type="password" autocomplete="new-password" minlength="8" maxlength="256" required>
+            <button id="toggle-new-password" class="button button--quiet" type="button" aria-controls="new-password" aria-label="Show new password" aria-pressed="false">Show</button>
+          </div>
           <label for="confirm-password">Enter it again</label>
-          <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="256" required>
+          <div class="password-field">
+            <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="256" required>
+            <button id="toggle-confirm-password" class="button button--quiet" type="button" aria-controls="confirm-password" aria-label="Show new password confirmation" aria-pressed="false">Show</button>
+          </div>
           <button id="password-reset-submit" class="button" type="submit">Save new password</button>
         </form>
         <button id="back-from-password-reset" class="text-button" type="button">Back to sign in</button>

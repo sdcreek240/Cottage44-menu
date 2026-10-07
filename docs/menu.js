@@ -74,6 +74,8 @@ const themeToggle = document.querySelector(".theme-toggle");
 const themeLabel = document.querySelector(".theme-toggle__label");
 const todayPlate = document.querySelector("#today-plate");
 const tomorrowPlate = document.querySelector("#tomorrow-plate");
+const tomorrowCutoff = document.querySelector("#tomorrow-cutoff");
+let tomorrowCutoffTimer = null;
 
 for (const { category, items } of menu) {
   const sectionId = `category-${category.toLowerCase()}`;
@@ -142,15 +144,49 @@ function setTheme(theme) {
     .trim();
 }
 
-function todayInSouthAfrica() {
+function todayInSouthAfrica(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-ZA", {
     timeZone: "Africa/Johannesburg",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(date);
   const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
   return `${values.year}-${values.month}-${values.day}`;
+}
+
+function formatRemaining(milliseconds) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+function updateTomorrowCutoff(now = new Date()) {
+  const cutoff = new Date(`${todayInSouthAfrica(now)}T13:00:00.000Z`);
+  const remaining = cutoff.getTime() - now.getTime();
+  tomorrowCutoff.hidden = false;
+  tomorrowCutoff.textContent = remaining > 0
+    ? `Time remaining before the 15:00 canteen cutoff: ${formatRemaining(remaining)}.`
+    : "The 15:00 canteen cutoff for tomorrow has passed.";
+}
+
+function startTomorrowCutoff() {
+  if (tomorrowCutoffTimer !== null) {
+    clearInterval(tomorrowCutoffTimer);
+  }
+  updateTomorrowCutoff();
+  tomorrowCutoffTimer = setInterval(updateTomorrowCutoff, 1000);
+}
+
+function hideTomorrowCutoff() {
+  if (tomorrowCutoffTimer !== null) {
+    clearInterval(tomorrowCutoffTimer);
+    tomorrowCutoffTimer = null;
+  }
+  tomorrowCutoff.hidden = true;
+  tomorrowCutoff.textContent = "";
 }
 
 function isValidServiceDate(value, expected = todayInSouthAfrica()) {
@@ -304,12 +340,15 @@ async function loadTodayPlate() {
     const nextPlate = payload.nextPlate ?? null;
     if (nextPlate === null) {
       renderPlateMessage(tomorrowPlate, "Tomorrow's plate has not been announced yet.");
+      hideTomorrowCutoff();
     } else if (!isValidPlate(nextPlate, tomorrowDate)) {
       throw new Error("Invalid tomorrow's plate response.");
     } else {
       renderPlate(tomorrowPlate, nextPlate);
+      startTomorrowCutoff();
     }
   } catch {
+    hideTomorrowCutoff();
     renderPlateMessage(todayPlate, "Today's plate is temporarily unavailable. Please try again later.");
     renderPlateMessage(tomorrowPlate, "Tomorrow's plate is temporarily unavailable. Please try again later.");
   }

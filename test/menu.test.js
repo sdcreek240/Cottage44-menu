@@ -43,12 +43,13 @@ class Element {
   }
 }
 
-function createPage(theme = "light", fetchImpl = async () => jsonResponse({ plate: null, nextPlate: null })) {
+function createPage(theme = "light", fetchImpl = async () => jsonResponse({ plate: null, nextPlate: null }), now = new Date()) {
   const elements = {
     "#category-nav": new Element("div"),
     "#menu-sections": new Element("div"),
     "#today-plate": new Element("div"),
     "#tomorrow-plate": new Element("div"),
+    "#tomorrow-cutoff": new Element("p"),
     ".theme-toggle": new Element("button"),
     ".theme-toggle__label": new Element("span"),
     'meta[name="theme-color"]': { content: "" },
@@ -81,6 +82,20 @@ function createPage(theme = "light", fetchImpl = async () => jsonResponse({ plat
             : "#ffffff"
           : "",
     }),
+    Date: class extends Date {
+      constructor(...args) {
+        super(args.length === 0 ? now : args[0]);
+      }
+
+      static now() {
+        return now.getTime();
+      }
+    },
+    setInterval: (callback) => {
+      context.intervalCallback = callback;
+      return 1;
+    },
+    clearInterval: () => {},
   });
 
   vm.runInContext(menuScript, context, { filename: "docs/menu.js" });
@@ -307,10 +322,11 @@ test("renders tomorrow's scheduled plate separately from today's empty state", a
   const tomorrow = new Date(`${currentServiceDate()}T00:00:00.000Z`);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const tomorrowDate = tomorrow.toISOString().slice(0, 10);
+  const beforeCutoff = new Date(`${currentServiceDate()}T12:00:00.000Z`);
   const { elements } = createPage("light", async () => jsonResponse({
     plate: null,
     nextPlate: validPlate({ serviceDate: tomorrowDate, name: "Tomorrow stew" }),
-  }));
+  }), beforeCutoff);
   await flushPromises();
   assert.match(elements["#today-plate"].children[0].textContent, /No plate/);
   assert.equal(
@@ -318,6 +334,38 @@ test("renders tomorrow's scheduled plate separately from today's empty state", a
     "Tomorrow stew",
   );
   assert.equal(elements["#tomorrow-plate"].attributes["aria-busy"], "false");
+  assert.match(elements["#tomorrow-cutoff"].textContent, /Time remaining before/);
+});
+
+test("tomorrow cutoff countdown handles before, exact, and after 15:00 in Johannesburg", async () => {
+  const date = currentServiceDate();
+  const tomorrow = new Date(`${date}T00:00:00.000Z`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const tomorrowDate = tomorrow.toISOString().slice(0, 10);
+  const nextPlate = validPlate({ serviceDate: tomorrowDate });
+  const before = createPage(
+    "light",
+    async () => jsonResponse({ plate: null, nextPlate }),
+    new Date(`${date}T12:59:59.000Z`),
+  );
+  await flushPromises();
+  assert.match(before.elements["#tomorrow-cutoff"].textContent, /0h 0m 1s/);
+
+  const exact = createPage(
+    "light",
+    async () => jsonResponse({ plate: null, nextPlate }),
+    new Date(`${date}T13:00:00.000Z`),
+  );
+  await flushPromises();
+  assert.match(exact.elements["#tomorrow-cutoff"].textContent, /cutoff.*passed/i);
+
+  const after = createPage(
+    "light",
+    async () => jsonResponse({ plate: null, nextPlate }),
+    new Date(`${date}T14:00:00.000Z`),
+  );
+  await flushPromises();
+  assert.match(after.elements["#tomorrow-cutoff"].textContent, /cutoff.*passed/i);
 });
 
 test("uses a text fallback when the plate image fails to load", async () => {
@@ -374,7 +422,7 @@ test("includes a labelled Plate of the Day live region in the page", () => {
   assert.match(html, /id="plate-day-title">Plate of the Day<\/h2>/);
   assert.match(
     html,
-    /class="plate-day__notice">Orders can only be placed through the canteen until 15:00 \(3:00 PM\)\.<\/p>/,
+    /class="plate-day__notice">Today's orders had to be placed through the canteen by 15:00 yesterday\.<\/p>/,
   );
 });
 

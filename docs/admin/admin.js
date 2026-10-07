@@ -12,6 +12,11 @@ const recoverySubmit = document.querySelector("#recovery-submit");
 const passwordResetPanel = document.querySelector("#password-reset-panel");
 const passwordResetForm = document.querySelector("#password-reset-form");
 const passwordResetSubmit = document.querySelector("#password-reset-submit");
+const passwordVisibilityControls = [
+  document.querySelector("#toggle-password"),
+  document.querySelector("#toggle-new-password"),
+  document.querySelector("#toggle-confirm-password"),
+];
 const forgotPasswordButton = document.querySelector("#forgot-password");
 const backToSignInButton = document.querySelector("#back-to-sign-in");
 const backFromPasswordResetButton = document.querySelector("#back-from-password-reset");
@@ -102,6 +107,25 @@ function endBusy(button) {
   button.disabled = false;
   button.textContent = button.dataset.originalLabel || button.textContent;
   delete button.dataset.originalLabel;
+}
+
+for (const toggle of passwordVisibilityControls) {
+  toggle.addEventListener("click", () => {
+    const input = document.getElementById(toggle.getAttribute("aria-controls"));
+    const isVisible = input.type === "text";
+    input.type = isVisible ? "password" : "text";
+    toggle.textContent = isVisible ? "Show" : "Hide";
+    toggle.setAttribute("aria-pressed", String(!isVisible));
+    const fieldLabel = input.name === "password"
+      ? "password"
+      : input.name === "confirmPassword"
+        ? "new password confirmation"
+        : "new password";
+    toggle.setAttribute(
+      "aria-label",
+      `${isVisible ? "Show" : "Hide"} ${fieldLabel}`,
+    );
+  });
 }
 
 function apiErrorMessage(body, fallback) {
