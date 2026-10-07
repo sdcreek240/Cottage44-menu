@@ -29,6 +29,7 @@ function initialAdminTheme(storedTheme = null) {
 
 const adminSelectors = [
   "#status",
+  "#status-icon",
   "#status-message",
   "#status-close",
   "#sign-in-panel",
@@ -92,6 +93,9 @@ test("admin theme defaults to dark and respects a saved shared theme", () => {
 test("uses the exact Cottage 44 red accent in admin light and dark themes", () => {
   assert.match(adminCss, /--accent:\s*#C12025;/);
   assert.match(adminCss, /:root\[data-theme="light"\][\s\S]*?--accent:\s*#C12025;/);
+  for (const kind of ["success", "error", "info", "warning"]) {
+    assert.match(adminCss, new RegExp(`\\.status\\[data-kind="${kind}"\\]`));
+  }
 });
 
 class Element {
@@ -170,9 +174,12 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   }
   const calls = [];
   const timers = new Map();
+  const scheduledFrequencies = [];
+  let audioContextCount = 0;
   let nextTimer = 1;
   let savedPlates = [];
   let todaysPlate = null;
+  const scheduledPlates = new Map();
   let failSignIn = true;
   let failImageUpload = false;
   let failSave = false;
@@ -224,7 +231,10 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       return Response.json({
         serviceDate: "2026-10-07",
         today: todaysPlate,
-        history: [],
+        history: [...scheduledPlates.entries()].map(([serviceDate, plate]) => ({
+          serviceDate,
+          plate,
+        })),
       });
     }
     if (url === "/api/admin/images") {
@@ -255,12 +265,23 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       if (failSchedule) {
         return Response.json({ error: "Planning service unavailable." }, { status: 503 });
       }
-      const { plateId } = JSON.parse(options.body);
-      todaysPlate = savedPlates.find((plate) => plate.id === plateId);
+      const { plateId, serviceDate = "2026-10-07" } = JSON.parse(options.body);
+      if (plateId === null) {
+        scheduledPlates.delete(serviceDate);
+        if (serviceDate === "2026-10-07") {
+          todaysPlate = null;
+        }
+        return Response.json({ cleared: true, serviceDate });
+      }
+      const plate = savedPlates.find((item) => item.id === plateId);
+      scheduledPlates.set(serviceDate, plate);
+      if (serviceDate === "2026-10-07") {
+        todaysPlate = plate;
+      }
       const response = Response.json({
         today: {
-          serviceDate: "2026-10-07",
-          plate: todaysPlate,
+          serviceDate,
+          plate,
         },
       });
       if (holdAssignment) {
@@ -305,7 +326,49 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     },
     getElementById: (id) => elements[`#${id}`],
     createElement: () => new Element(),
+    addEventListener: (event, callback) => {
+      document.listeners ??= {};
+      document.listeners[event] = callback;
+    },
+    removeEventListener: (event, callback) => {
+      if (document.listeners?.[event] === callback) {
+        delete document.listeners[event];
+      }
+    },
   };
+  class FakeAudioContext {
+    constructor() {
+      audioContextCount += 1;
+      this.state = "suspended";
+      this.currentTime = 10;
+      this.destination = {};
+    }
+
+    async resume() {
+      this.state = "running";
+    }
+
+    createOscillator() {
+      return {
+        frequency: {
+          setValueAtTime: (frequency) => scheduledFrequencies.push(frequency),
+        },
+        connect() {},
+        start() {},
+        stop() {},
+      };
+    }
+
+    createGain() {
+      return {
+        gain: {
+          setValueAtTime() {},
+          linearRampToValueAtTime() {},
+        },
+        connect() {},
+      };
+    }
+  }
   const context = vm.createContext({
     document,
     fetch: fetchMock,
@@ -325,10 +388,15 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       confirm: () => true,
       location: { search: "", pathname: "/admin/" },
       history: { replaceState() {} },
+      AudioContext: FakeAudioContext,
     },
     console,
   });
   vm.runInContext(adminScript, context, { filename: "docs/admin/admin.js" });
+  assert.equal(audioContextCount, 0, "audio stays locked until user interaction");
+  await document.listeners.pointerdown();
+  assert.equal(audioContextCount, 1);
+  assert.equal(document.listeners.pointerdown, undefined, "audio unlock listener is removed after success");
   for (const [toggle, input] of [
     ["#toggle-password", "#password"],
     ["#toggle-new-password", "#new-password"],
@@ -353,7 +421,14 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   await elements["#sign-in-form"].listeners.submit({ preventDefault() {} });
   assert.equal(elements["#status-message"].textContent, "Email or password is incorrect.");
   assert.equal(elements["#status"].dataset.kind, "error");
+  assert.equal(elements["#status-icon"].textContent, "×");
+  assert.deepEqual(scheduledFrequencies, [330, 220], "error toast schedules a low descending tone");
   assert.equal(elements["#dashboard"].hidden, true);
+  context.setStatus("Information", "info");
+  assert.equal(elements["#status-icon"].textContent, "i");
+  context.setStatus("Warning", "warning");
+  assert.equal(elements["#status"].dataset.kind, "warning");
+  assert.equal(elements["#status-icon"].textContent, "!");
 
   failSignIn = false;
   await elements["#sign-in-form"].listeners.submit({ preventDefault() {} });
@@ -362,6 +437,11 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   );
   assert.equal(JSON.parse(signInCall.options.body).rememberMe, true);
   assert.equal(elements["#dashboard"].hidden, false);
+  assert.deepEqual(
+    scheduledFrequencies,
+    [330, 220, 660, 880],
+    "success toast schedules a distinct rising tone",
+  );
 
   elements["#plate-name"].value = "Cottage burger";
   elements["#plate-description"].value = "Beef and chips";
@@ -435,6 +515,34 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   });
   assert.match(elements["#today-summary"].textContent, /Cottage burger/);
 
+  const weeklyRow = elements["#weekly-plan-list"].children[0];
+  const weeklySelect = weeklyRow.children[1];
+  const weeklyButton = weeklyRow.children[2];
+  assert.equal(weeklySelect.value, savedPlates[0].id);
+  weeklySelect.value = "";
+  await weeklyButton.listeners.click();
+  const clearCall = calls.findLast(({ url, options }) =>
+    url === "/api/admin/plates/today" && options.method === "POST");
+  assert.deepEqual(JSON.parse(clearCall.options.body), {
+    serviceDate: "2026-10-07",
+    plateId: null,
+  });
+  assert.equal(elements["#status"].dataset.kind, "success");
+  assert.equal(elements["#status-icon"].textContent, "✓");
+  assert.equal(elements["#status-message"].textContent, "No plate planned for 2026-10-07.");
+  assert.equal(elements["#weekly-plan-list"].children[0].children[1].value, "");
+  assert.equal(elements["#today-summary"].textContent, "No plate has been selected for today.");
+
+  const refreshedWeeklyRow = elements["#weekly-plan-list"].children[0];
+  const refreshedWeeklySelect = refreshedWeeklyRow.children[1];
+  refreshedWeeklySelect.value = savedPlates[0].id;
+  await refreshedWeeklyRow.children[2].listeners.click();
+  assert.equal(elements["#weekly-plan-list"].children[0].children[1].value, savedPlates[0].id);
+  assert.equal(elements["#status"].dataset.kind, "success");
+  assert.equal(elements["#status-icon"].textContent, "✓");
+
+  const assignmentCount = calls.filter(({ url, options }) =>
+    url === "/api/admin/plates/today" && options.method === "POST").length;
   holdAssignment = true;
   const firstAssignment = elements["#set-today"].listeners.click();
   const duplicateAssignment = elements["#set-today"].listeners.click();
@@ -443,7 +551,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.equal(
     calls.filter(({ url, options }) =>
       url === "/api/admin/plates/today" && options.method === "POST").length,
-    2,
+    assignmentCount + 1,
   );
   resolveAssignment();
   await Promise.all([firstAssignment, duplicateAssignment]);
@@ -484,19 +592,35 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   elements["#schedule-select"].value = savedPlates[0].id;
   failSchedule = true;
   await elements["#save-schedule"].listeners.click();
+  assert.equal(elements["#status"].dataset.kind, "error");
+  assert.equal(elements["#status-icon"].textContent, "×");
   failSchedule = false;
 
-  const weeklyRow = elements["#weekly-plan-list"].children[0];
-  const weeklySelect = weeklyRow.children[1];
-  const weeklyButton = weeklyRow.children[2];
-  weeklyButton.disabled = true;
-  await weeklyButton.listeners.click();
-  weeklyButton.disabled = false;
-  weeklySelect.value = "";
-  await weeklyButton.listeners.click();
-  weeklySelect.value = savedPlates[0].id;
+  elements["#schedule-date"].listeners.change();
+  elements["#schedule-select"].value = savedPlates[0].id;
+  await elements["#save-schedule"].listeners.click();
+  assert.equal(elements["#schedule-select"].value, savedPlates[0].id);
+  assert.match(elements["#status-message"].textContent, /planned for 2026-10-08/);
+  elements["#schedule-select"].value = "";
+  await elements["#save-schedule"].listeners.click();
+  assert.deepEqual(JSON.parse(calls.findLast(({ url, options }) =>
+    url === "/api/admin/plates/today" &&
+    options.method === "POST").options.body), {
+    serviceDate: "2026-10-08",
+    plateId: null,
+  });
+  assert.equal(elements["#schedule-select"].value, "");
+  assert.match(elements["#status-message"].textContent, /No plate planned for 2026-10-08/);
+
+  const latestWeeklyRow = elements["#weekly-plan-list"].children[0];
+  const latestWeeklySelect = latestWeeklyRow.children[1];
+  const latestWeeklyButton = latestWeeklyRow.children[2];
+  latestWeeklyButton.disabled = true;
+  await latestWeeklyButton.listeners.click();
+  latestWeeklyButton.disabled = false;
+  latestWeeklySelect.value = savedPlates[0].id;
   failSchedule = true;
-  await weeklyButton.listeners.click();
+  await latestWeeklyButton.listeners.click();
   failSchedule = false;
 
   const deleteButton = elements["#plate-list"].children[0].children[1].children[1];
