@@ -65,7 +65,10 @@ const adminSelectors = [
   "#image-preview-image",
   "#clear-image",
   "#plate-list",
+  "#history-state",
   "#history-list",
+  "#history-retry",
+  "#history-load-more",
   "#today-select",
   "#today-summary",
   "#service-date",
@@ -112,6 +115,10 @@ test("admin dashboard navigation targets clearly grouped, accessible sections", 
   assert.equal(navigation[1], "Admin sections");
   const targets = [...navigation[2].matchAll(/href="#([^"]+)"/g)].map(([, id]) => id);
   assert.deepEqual(targets, ["today", "planning", "plate-library", "history"]);
+  assert.deepEqual(
+    [...navigation[2].matchAll(/>([^<]+)<\/a>/g)].map(([, label]) => label),
+    ["Today’s Plate", "Plan Ahead", "Plate Library", "History"],
+  );
   for (const target of targets) {
     assert.ok(ids.includes(target), `navigation target #${target} exists`);
   }
@@ -129,6 +136,8 @@ test("admin dashboard navigation targets clearly grouped, accessible sections", 
   assert.ok(library < adminHtml.indexOf('id="plate-form"'));
   assert.ok(adminHtml.indexOf('id="plate-list"') < history);
   assert.ok(history < adminHtml.indexOf('id="history-list"'));
+  assert.match(adminHtml, /Past plate changes stay here, even if a plate is removed from your library/);
+  assert.match(adminHtml, /id="history-state"[^>]*aria-live="polite"/);
 });
 
 test("admin dashboard layout switches from grouped desktop columns to a narrow single column", () => {
@@ -225,11 +234,14 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   let savedPlates = [];
   let todaysPlate = null;
   const scheduledPlates = new Map();
+  let historyEvents = [];
+  let nextHistoryId = 1;
   let failSignIn = true;
   let failImageUpload = false;
   let failSave = false;
   let failSchedule = false;
   let failDelete = false;
+  let failHistory = false;
   let failRecovery = false;
   let failReset = false;
   let failSignOut = false;
@@ -237,6 +249,16 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   let resolveAssignment;
   const imageUrl =
     "https://cottage44-test.supabase.co/storage/v1/object/public/cottage44-plates/123e4567-e89b-42d3-a456-426614174000.jpg";
+
+  function snapshot(plate) {
+    return {
+      id: plate.id,
+      name: plate.name,
+      description: plate.description,
+      priceCents: plate.priceCents,
+      imageUrl: plate.imageUrl ?? null,
+    };
+  }
 
   async function fetchMock(url, options = {}) {
     calls.push({ url, options });
@@ -276,10 +298,26 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       return Response.json({
         serviceDate: "2026-10-07",
         today: todaysPlate,
-        history: [...scheduledPlates.entries()].map(([serviceDate, plate]) => ({
+        upcoming: [...scheduledPlates.entries()].map(([serviceDate, plate]) => ({
           serviceDate,
           plate,
         })),
+      });
+    }
+    if (url.startsWith("/api/admin/history")) {
+      if (failHistory) {
+        return Response.json({ error: "History service unavailable." }, { status: 503 });
+      }
+      const before = new URL(url, "https://menu.example").searchParams.get("before");
+      const rows = historyEvents
+        .filter((item) => before === null || item.id < Number(before))
+        .sort((left, right) => right.id - left.id);
+      const events = rows.slice(0, 100);
+      const hasMore = rows.length > 100;
+      return Response.json({
+        events,
+        hasMore,
+        nextBefore: hasMore ? events.at(-1).id : null,
       });
     }
     if (url === "/api/admin/images") {
@@ -312,14 +350,34 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       }
       const { plateId, serviceDate = "2026-10-07" } = JSON.parse(options.body);
       if (plateId === null) {
+        const previousPlate = scheduledPlates.get(serviceDate);
         scheduledPlates.delete(serviceDate);
         if (serviceDate === "2026-10-07") {
           todaysPlate = null;
         }
+        if (previousPlate) {
+          historyEvents.push({
+            id: nextHistoryId++,
+            serviceDate,
+            eventType: "cleared",
+            previousPlate: snapshot(previousPlate),
+            currentPlate: null,
+            occurredAt: "2026-10-07T10:00:00.000Z",
+          });
+        }
         return Response.json({ cleared: true, serviceDate });
       }
       const plate = savedPlates.find((item) => item.id === plateId);
+      const previousPlate = scheduledPlates.get(serviceDate);
       scheduledPlates.set(serviceDate, plate);
+      historyEvents.push({
+        id: nextHistoryId++,
+        serviceDate,
+        eventType: previousPlate ? "changed" : "assigned",
+        previousPlate: previousPlate ? snapshot(previousPlate) : null,
+        currentPlate: snapshot(plate),
+        occurredAt: "2026-10-07T10:00:00.000Z",
+      });
       if (serviceDate === "2026-10-07") {
         todaysPlate = plate;
       }
@@ -340,7 +398,29 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       if (failDelete) {
         return Response.json({ error: "Delete service unavailable." }, { status: 503 });
       }
-      savedPlates = [];
+      const plateId = url.split("/").at(-1);
+      if (
+        todaysPlate?.id === plateId ||
+        [...scheduledPlates.values()].some((plate) => plate.id === plateId)
+      ) {
+        return Response.json({
+          error: "This plate is assigned for today or a future date. Change that plan before deleting it.",
+        }, { status: 409 });
+      }
+      const plate = savedPlates.find((item) => item.id === plateId);
+      const pastAssignment = historyEvents.find((item) =>
+        item.currentPlate?.id === plateId || item.previousPlate?.id === plateId);
+      if (plate && pastAssignment) {
+        historyEvents.push({
+          id: nextHistoryId++,
+          serviceDate: pastAssignment.serviceDate,
+          eventType: "plate_deleted",
+          previousPlate: snapshot(plate),
+          currentPlate: null,
+          occurredAt: "2026-10-07T10:00:00.000Z",
+        });
+      }
+      savedPlates = savedPlates.filter((item) => item.id !== plateId);
       return Response.json({ deleted: true });
     }
     throw new Error(`Unexpected fake API request: ${options.method ?? "GET"} ${url}`);
@@ -482,6 +562,14 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   );
   assert.equal(JSON.parse(signInCall.options.body).rememberMe, true);
   assert.equal(elements["#dashboard"].hidden, false);
+  assert.match(elements["#history-state"].textContent, /No history yet/);
+  failHistory = true;
+  await elements["#history-retry"].listeners.click();
+  assert.equal(elements["#history-state"].textContent, "History service unavailable.");
+  assert.equal(elements["#history-retry"].hidden, false);
+  failHistory = false;
+  await elements["#history-retry"].listeners.click();
+  assert.match(elements["#history-state"].textContent, /No history yet/);
   assert.deepEqual(
     scheduledFrequencies,
     [330, 220, 660, 880],
@@ -549,6 +637,14 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     url.startsWith("/api/admin/plates/") && options.method === "PATCH");
   assert.ok(updateCall);
   assert.equal(JSON.parse(updateCall.options.body).imageUrl, imageUrl);
+  historyEvents.push({
+    id: nextHistoryId++,
+    serviceDate: "2026-09-07",
+    eventType: "backfilled",
+    previousPlate: null,
+    currentPlate: snapshot(savedPlates[0]),
+    occurredAt: "2026-09-07T08:00:00.000Z",
+  });
 
   elements["#today-select"].value = savedPlates[0].id;
   await elements["#set-today"].listeners.click();
@@ -672,6 +768,15 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   failDelete = true;
   await deleteButton.listeners.click();
   failDelete = false;
+  scheduledPlates.clear();
+  todaysPlate = null;
+  await deleteButton.listeners.click();
+  assert.equal(elements["#plate-list"].children.length, 0);
+  const retainedHistory = elements["#history-list"].children.map(
+    (item) => item.children[0].children[1].textContent,
+  );
+  assert.ok(retainedHistory.includes("Cottage burger"));
+  assert.ok(retainedHistory.some((item) => /removed from library; history kept/.test(item)));
   deleteButton.disabled = true;
   await deleteButton.listeners.click();
   deleteButton.disabled = false;

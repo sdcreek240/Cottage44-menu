@@ -87,13 +87,13 @@
           <div>
             <p class="eyebrow">Owner workspace</p>
             <h1>Manage the menu</h1>
-            <p class="muted">Set today’s plate, plan upcoming weekdays, and keep saved plates up to date.</p>
+            <p class="muted">Set today’s plate, plan upcoming weekdays, manage saved plates, and look back at past changes.</p>
           </div>
           <nav class="dashboard-nav" aria-label="Admin sections">
-            <a href="#today">Today</a>
-            <a href="#planning">Plan ahead</a>
-            <a href="#plate-library">Plate library</a>
-            <a href="#history">Recent history</a>
+            <a href="#today">Today’s Plate</a>
+            <a href="#planning">Plan Ahead</a>
+            <a href="#plate-library">Plate Library</a>
+            <a href="#history">History</a>
           </nav>
         </header>
 
@@ -178,10 +178,19 @@
           </div>
         </section>
 
-        <details id="history" class="panel collapsible dashboard-section">
-          <summary><span><span class="eyebrow">Past dates</span><strong id="history-title">Recent history</strong></span><span class="summary-hint">Recently served plates</span></summary>
+        <section id="history" class="panel dashboard-section" aria-labelledby="history-title">
+          <div class="group-heading">
+            <p class="eyebrow">Permanent record</p>
+            <h2 id="history-title">History</h2>
+            <p class="muted">Past plate changes stay here, even if a plate is removed from your library.</p>
+          </div>
+          <p id="history-state" role="status" aria-live="polite">History is loading…</p>
           <ol id="history-list" class="history-list"></ol>
-        </details>
+          <div class="inline-form">
+            <button id="history-retry" class="button button--quiet" type="button" hidden>Try loading history again</button>
+            <button id="history-load-more" class="button button--quiet" type="button" hidden>Load older history</button>
+          </div>
+        </section>
       </div>
     </main>
   </body>

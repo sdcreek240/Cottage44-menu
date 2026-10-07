@@ -12,8 +12,9 @@ static file server.
 ## Backend foundation
 
 Cloudflare Pages Functions provide the API and owner administration. The
-public menu reads only today's plate; `/admin/` supports owner sign-in, saved
-plates, image uploads, date history, and setting today's plate. Supabase Auth
+public menu reads only today's plate; `/admin/` supports owner sign-in, today's
+plate, upcoming planning, a reusable plate library, permanent assignment
+history, and image uploads. Supabase Auth
 password tokens are held in a Secure/HttpOnly/SameSite cookie and are never
 stored in browser local storage. Database and Storage RLS enforce the owner
 email independently of the UI. See

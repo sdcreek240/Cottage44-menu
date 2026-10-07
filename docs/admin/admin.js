@@ -35,6 +35,9 @@ const imagePreviewImage = document.querySelector("#image-preview-image");
 const clearImageButton = document.querySelector("#clear-image");
 const plateList = document.querySelector("#plate-list");
 const historyList = document.querySelector("#history-list");
+const historyState = document.querySelector("#history-state");
+const historyRetryButton = document.querySelector("#history-retry");
+const historyLoadMoreButton = document.querySelector("#history-load-more");
 const todaySelect = document.querySelector("#today-select");
 const todaySummary = document.querySelector("#today-summary");
 const serviceDate = document.querySelector("#service-date");
@@ -49,7 +52,10 @@ const scheduleSummary = document.querySelector("#schedule-summary");
 const weeklyPlanList = document.querySelector("#weekly-plan-list");
 
 let plates = [];
-let history = [];
+let upcomingAssignments = [];
+let historyEvents = [];
+let historyNextBefore = null;
+let historyHasMore = false;
 let todayPlateId = null;
 let savedImageUrl = null;
 let previewObjectUrl = null;
@@ -369,7 +375,7 @@ function updateScheduleSummary() {
 }
 
 function selectScheduledPlate() {
-  const scheduled = history.find((item) => item.serviceDate === scheduleDateInput.value);
+  const scheduled = upcomingAssignments.find((item) => item.serviceDate === scheduleDateInput.value);
   scheduleSelect.value = scheduled?.plate.id ?? "";
   updateScheduleSummary();
 }
@@ -398,7 +404,7 @@ function renderWeeklyPlan() {
   if (!serviceDate.textContent) {
     return;
   }
-  const assignments = new Map(history.map((item) => [item.serviceDate, item.plate]));
+  const assignments = new Map(upcomingAssignments.map((item) => [item.serviceDate, item.plate]));
   for (const date of planningWeekdays(serviceDate.textContent)) {
     const row = document.createElement("div");
     row.className = "weekly-plan-row";
@@ -461,7 +467,7 @@ function renderWeeklyPlan() {
 
 function renderHistory() {
   historyList.replaceChildren();
-  for (const item of history) {
+  for (const item of historyEvents) {
     const row = document.createElement("li");
     row.className = "history-item";
     const details = document.createElement("div");
@@ -471,25 +477,62 @@ function renderHistory() {
     date.textContent = item.serviceDate;
     const name = document.createElement("span");
     name.className = "history-item__name";
-    name.textContent = item.plate.name;
+    const previousName = item.previousPlate?.name;
+    const currentName = item.currentPlate?.name;
+    if (item.eventType === "changed") {
+      name.textContent = `${previousName || "No plate"} changed to ${currentName || "no plate"}`;
+    } else if (item.eventType === "cleared") {
+      name.textContent = `${previousName || "Plate"} — plan cleared`;
+    } else if (item.eventType === "plate_deleted") {
+      name.textContent = `${previousName || "Plate"} — removed from library; history kept`;
+    } else {
+      name.textContent = currentName || "Plate assignment";
+    }
     details.append(date, name);
     row.append(details);
     historyList.append(row);
   }
-  if (history.length === 0) {
-    const empty = document.createElement("li");
-    empty.textContent = "No saved history yet.";
-    historyList.append(empty);
+}
+
+async function loadHistory(before = null, append = false) {
+  if (append && !beginBusy(historyLoadMoreButton, "Loading…")) {
+    return;
+  }
+  historyState.textContent = append ? "Loading older history…" : "Loading history…";
+  historyRetryButton.hidden = true;
+  try {
+    const path = before === null
+      ? "/api/admin/history"
+      : `/api/admin/history?before=${encodeURIComponent(before)}`;
+    const result = await apiRequest(path);
+    if (!Array.isArray(result.events) || typeof result.hasMore !== "boolean") {
+      throw new Error("History could not be read. Please try again.");
+    }
+    historyEvents = append ? [...historyEvents, ...result.events] : result.events;
+    historyHasMore = result.hasMore;
+    historyNextBefore = result.nextBefore;
+    historyState.textContent = historyEvents.length
+      ? `${historyEvents.length} history ${historyEvents.length === 1 ? "entry" : "entries"}.`
+      : "No history yet. Assign a plate or make a change to start your record.";
+    renderHistory();
+  } catch (error) {
+    historyState.textContent = error.message;
+    historyRetryButton.hidden = false;
+  } finally {
+    historyLoadMoreButton.hidden = !historyHasMore;
+    if (append) {
+      endBusy(historyLoadMoreButton);
+    }
   }
 }
 
 async function loadDashboard() {
-  setStatus("Loading saved plates and history…");
+  setStatus("Loading today’s plate, plan ahead, and plate library…");
   try {
     const catalog = await apiRequest("/api/admin/plates");
     const daily = await apiRequest("/api/admin/plates/today");
     plates = catalog.plates;
-    history = daily.history;
+    upcomingAssignments = daily.upcoming;
     todayPlateId = daily.today?.id ?? null;
     serviceDate.textContent = daily.serviceDate;
     scheduleDateInput.min = daily.serviceDate;
@@ -497,12 +540,12 @@ async function loadDashboard() {
     scheduleDateInput.value ||= daily.serviceDate;
     renderPlateList();
     renderWeeklyPlan();
-    renderHistory();
     selectScheduledPlate();
     setStatus("");
   } catch (error) {
     setStatus(error.message, "error");
   }
+  await loadHistory();
 
   scheduleDateInput.addEventListener("change", selectScheduledPlate);
   scheduleSelect.addEventListener("change", updateScheduleSummary);
@@ -713,7 +756,7 @@ async function normalizeImage(file) {
 }
 
 async function deletePlate(plate) {
-  if (!window.confirm(`Delete “${plate.name}”? Saved history will prevent deletion.`)) {
+  if (!window.confirm(`Delete “${plate.name}” from the plate library? Past history will be kept.`)) {
     return;
   }
   const deleteButton = document.querySelector(`[aria-label="Delete ${plate.name}"]`);
@@ -725,11 +768,7 @@ async function deletePlate(plate) {
     await apiRequest(`/api/admin/plates/${encodeURIComponent(plate.id)}`, {
       method: "DELETE",
     });
-    plates = plates.filter((item) => item.id !== plate.id);
-    if (todayPlateId === plate.id) {
-      todayPlateId = null;
-    }
-    renderPlateList();
+    await loadDashboard();
     setStatus("Plate deleted.", "success");
   } catch (error) {
     setStatus(error.message, "error");
@@ -928,6 +967,10 @@ setTodayButton.addEventListener("click", async () => {
 });
 
 todaySelect.addEventListener("change", updateTodaySummary);
+historyRetryButton.addEventListener("click", () => loadHistory());
+historyLoadMoreButton.addEventListener("click", () =>
+  loadHistory(historyNextBefore, true)
+);
 newPlateButton.addEventListener("click", () => {
   resetForm();
   nameInput.focus();

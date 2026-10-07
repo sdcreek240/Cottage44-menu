@@ -7,6 +7,7 @@ import {
   handlePasswordRecoveryVerification,
 } from "../functions/_shared/recovery.ts";
 import { handleImageUpload } from "../functions/api/admin/images.ts";
+import { handleHistoryRequest } from "../functions/api/admin/history.ts";
 import { handlePlateRequest } from "../functions/api/admin/plates/[id].ts";
 import { handlePlatesRequest } from "../functions/api/admin/plates.ts";
 import { handleSessionRequest } from "../functions/api/admin/session.ts";
@@ -1033,4 +1034,258 @@ test("plate update and deletion require a same-origin mutation", async () => {
 
   assert.equal(response.status, 403);
   assert.equal(fetchCalled, false);
+});
+
+test("owner history is paged from immutable snapshot events", async () => {
+  const request = sessionRequest(
+    false,
+    "https://menu.example/api/admin/history?before=42",
+  );
+  let historyUrl = "";
+  const response = await handleHistoryRequest(request, env, {
+    fetchImpl: async (input) => {
+      if (String(input).endsWith("/auth/v1/user")) {
+        return jsonResponse({ email: OWNER_EMAIL });
+      }
+      historyUrl = String(input);
+      return jsonResponse([{
+        id: 41,
+        service_date: "2026-09-07",
+        event_type: "backfilled",
+        previous_plate: null,
+        current_plate: {
+          id: "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0",
+          name: "Plate A",
+          description: "A past special",
+          price_cents: 12500,
+          image_url: null,
+        },
+        occurred_at: "2026-09-07T08:00:00.000Z",
+      }]);
+    },
+  });
+
+  assert.equal(response.status, 200);
+  const query = new URL(historyUrl).searchParams;
+  assert.equal(query.get("id"), "lt.42");
+  assert.equal(query.get("limit"), "101");
+  assert.equal(query.get("order"), "id.desc");
+  const body = await response.json();
+  assert.equal(body.hasMore, false);
+  assert.equal(body.nextBefore, null);
+  assert.deepEqual(body.events[0], {
+    id: 41,
+    serviceDate: "2026-09-07",
+    eventType: "backfilled",
+    previousPlate: null,
+    currentPlate: {
+      id: "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0",
+      name: "Plate A",
+      description: "A past special",
+      priceCents: 12500,
+      imageUrl: null,
+    },
+    occurredAt: "2026-09-07T08:00:00.000Z",
+  });
+});
+
+test("history rejects invalid cursors and invalid snapshots without exposing database details", async () => {
+  let fetchCalls = 0;
+  const invalidCursor = await handleHistoryRequest(
+    sessionRequest(false, "https://menu.example/api/admin/history?before=oops"),
+    env,
+    { fetchImpl: async () => { fetchCalls += 1; return jsonResponse([]); } },
+  );
+  assert.equal(invalidCursor.status, 400);
+  assert.equal(fetchCalls, 0);
+
+  const logs: string[] = [];
+  const invalidSnapshot = await handleHistoryRequest(
+    sessionRequest(false, "https://menu.example/api/admin/history"),
+    env,
+    {
+      logger: { error: (message) => logs.push(message) },
+      fetchImpl: async (input) => String(input).endsWith("/auth/v1/user")
+        ? jsonResponse({ email: OWNER_EMAIL })
+        : jsonResponse([{
+          id: 1,
+          service_date: "2026-09-07",
+          event_type: "assigned",
+          previous_plate: null,
+          current_plate: {
+            id: "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0",
+            name: "Plate A",
+            description: "",
+            price_cents: 10,
+            image_url: "https://attacker.example/photo.jpg",
+          },
+          occurred_at: "2026-09-07T08:00:00.000Z",
+        }]),
+    },
+  );
+  assert.equal(invalidSnapshot.status, 502);
+  assert.deepEqual(await invalidSnapshot.json(), {
+    error: "The admin request could not be completed.",
+  });
+  assert.deepEqual(logs, ["[admin] Plate assignment history response was invalid."]);
+
+  let queriedHistory = false;
+  const unauthorized = await handleHistoryRequest(
+    sessionRequest(false, "https://menu.example/api/admin/history"),
+    env,
+    {
+      fetchImpl: async (input) => {
+        if (String(input).endsWith("/auth/v1/user")) {
+          return jsonResponse({ email: "someone-else@example.com" });
+        }
+        queriedHistory = true;
+        return jsonResponse([]);
+      },
+    },
+  );
+  assert.equal(unauthorized.status, 401);
+  assert.equal(queriedHistory, false);
+});
+
+test("history pages return a stable cursor without dropping older events", async () => {
+  const request = sessionRequest(false, "https://menu.example/api/admin/history");
+  const response = await handleHistoryRequest(request, env, {
+    fetchImpl: async (input) => {
+      if (String(input).endsWith("/auth/v1/user")) {
+        return jsonResponse({ email: OWNER_EMAIL });
+      }
+      return jsonResponse(Array.from({ length: 101 }, (_, index) => ({
+        id: 101 - index,
+        service_date: "2026-09-07",
+        event_type: "assigned",
+        previous_plate: null,
+        current_plate: {
+          id: "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0",
+          name: `Plate ${index}`,
+          description: "",
+          price_cents: 100,
+          image_url: null,
+        },
+        occurred_at: "2026-09-07T08:00:00.000Z",
+      })));
+    },
+  });
+  const body = await response.json();
+  assert.equal(body.events.length, 100);
+  assert.equal(body.hasMore, true);
+  assert.equal(body.nextBefore, 2);
+});
+
+test("schedule GET returns only today and future assignments", async () => {
+  const request = sessionRequest(false, "https://menu.example/api/admin/plates/today");
+  let scheduleUrl = "";
+  const response = await handleTodayAdminRequest(
+    request,
+    env,
+    {
+      fetchImpl: async (input) => {
+        if (String(input).endsWith("/auth/v1/user")) {
+          return jsonResponse({ email: OWNER_EMAIL });
+        }
+        scheduleUrl = String(input);
+        return jsonResponse([{
+          service_date: "2026-10-07",
+          plate: {
+            id: "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0",
+            name: "Today",
+            description: "Fresh",
+            price_cents: 12500,
+            image_url: null,
+          },
+        }]);
+      },
+    },
+    new Date("2026-10-07T10:00:00.000Z"),
+  );
+
+  assert.equal(response.status, 200);
+  const query = new URL(scheduleUrl).searchParams;
+  assert.equal(
+    query.get("and"),
+    "(service_date.gte.2026-10-07,service_date.lte.2027-10-07)",
+  );
+  assert.equal(query.get("limit"), "366");
+  const body = await response.json();
+  assert.equal(body.today.name, "Today");
+  assert.equal(body.upcoming.length, 1);
+  assert.equal("history" in body, false);
+});
+
+test("a past assignment snapshot remains readable after its plate is deleted", async () => {
+  const plateId = "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0";
+  let plateExists = true;
+  const historyRows = [{
+    id: 19,
+    service_date: "2026-09-07",
+    event_type: "backfilled",
+    previous_plate: null,
+    current_plate: {
+      id: plateId,
+      name: "Plate A",
+      description: "A past special",
+      price_cents: 12500,
+      image_url: null,
+    },
+    occurred_at: "2026-09-07T08:00:00.000Z",
+  }];
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/auth/v1/user")) {
+      return jsonResponse({ email: OWNER_EMAIL });
+    }
+    if (url.includes("/rest/v1/plates?")) {
+      plateExists = false;
+      return jsonResponse([{ id: plateId }]);
+    }
+    if (url.includes("/rest/v1/plate_assignment_history?")) {
+      assert.equal(plateExists, false);
+      return jsonResponse(historyRows);
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  const base = sessionRequest(false);
+  const deleteRequest = new Request(
+    `https://menu.example/api/admin/plates/${plateId}`,
+    {
+      method: "DELETE",
+      headers: {
+        Origin: "https://menu.example",
+        Cookie: base.headers.get("Cookie") ?? "",
+      },
+    },
+  );
+  const deleted = await handlePlateRequest(deleteRequest, env, plateId, { fetchImpl });
+  assert.equal(deleted.status, 200);
+  assert.deepEqual(await deleted.json(), { deleted: true });
+
+  const historyRequest = sessionRequest(false, "https://menu.example/api/admin/history");
+  const history = await handleHistoryRequest(historyRequest, env, { fetchImpl });
+  assert.equal(history.status, 200);
+  const body = await history.json();
+  assert.equal(body.events[0].currentPlate.name, "Plate A");
+  assert.equal(body.events[0].serviceDate, "2026-09-07");
+});
+
+test("deleting a plate still assigned for today or later returns a clear conflict", async () => {
+  const plateId = "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0";
+  const base = sessionRequest(false);
+  const request = new Request(`https://menu.example/api/admin/plates/${plateId}`, {
+    method: "DELETE",
+    headers: {
+      Origin: "https://menu.example",
+      Cookie: base.headers.get("Cookie") ?? "",
+    },
+  });
+  const response = await handlePlateRequest(request, env, plateId, {
+    fetchImpl: async (input) => String(input).endsWith("/auth/v1/user")
+      ? jsonResponse({ email: OWNER_EMAIL })
+      : jsonResponse({ message: "scheduled delete blocked" }, 409),
+  });
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /today or a future date/);
 });
