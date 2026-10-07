@@ -62,13 +62,22 @@ jobs:
 
       - name: Deploy Cloudflare Pages application preview
         id: publish
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: preview
-          wranglerVersion: 4.148.0
-          command: pages deploy . --project-name=cottage44-menu-pages --branch=pr-${{ env.PREVIEW_PR_NUMBER }}
+        working-directory: preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.148.0 pages deploy . \
+            --project-name=cottage44-menu-pages \
+            --branch="pr-${PREVIEW_PR_NUMBER}" | tee /tmp/wrangler-pages-deploy.log
+
+          deployment_url="$(grep -Eo 'https://[[:alnum:].-]+\.pages\.dev' /tmp/wrangler-pages-deploy.log | tail -n 1)"
+          if [[ -z "$deployment_url" ]]; then
+            echo "::error::Wrangler completed without reporting a Pages deployment URL."
+            exit 1
+          fi
+          echo "deployment-url=$deployment_url" >> "$GITHUB_OUTPUT"
 
       - name: Smoke-test the deployed application
         env:
