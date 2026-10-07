@@ -44,19 +44,22 @@ The static site and Pages Functions are deployed by Cloudflare Pages from the
 The following provider-side actions are still manual and are not performed by
 this repository change:
 
-1. In the repository's **Settings → Pages**, select **Source: GitHub Actions**
-   if Pages is enabled, then disable/remove the Pages deployment and custom
-   domain. If the UI instead shows a branch source, set it to **None** and
-   remove the displayed `menu.cottage44.co.za` custom domain.
-2. In the DNS provider, remove the GitHub Pages `CNAME`/A records for
-   `menu.cottage44.co.za` only after confirming the Cloudflare Pages project is
-   ready to receive the hostname.
-3. In Cloudflare Pages **Custom domains**, add and verify
-   `menu.cottage44.co.za`, then configure the required DNS record there.
+1. In the repository's **Settings → Pages**, manually disable the GitHub Pages
+   source and remove its custom-domain entry. GitHub's Pages API still reports
+   the legacy site as built at
+   `https://sdcreek240.github.io/Cottage44-menu/` from `main`/`docs`; the
+   current token cannot remove it through the API, so use the Settings UI.
+2. Keep the existing DNS CNAME unchanged; it already points
+   `menu.cottage44.co.za` to `cottage44-menu-pages.pages.dev`.
+3. After GitHub Pages is disabled, recheck the hostname in Cloudflare Pages,
+   re-add/verify `menu.cottage44.co.za` if Cloudflare still shows it inactive,
+   and wait for Cloudflare to issue its certificate. The current TLS handshake
+   failure is a provider-side certificate/hostname state, not a DNS record
+   problem.
 4. Set Cloudflare Pages production branch to `main` and verify
    `/api/health`, `/api/plates/today`, and `/admin/` on the custom domain.
 
-Do not delete DNS records before the Cloudflare hostname is ready; this PR
+Do not delete or change DNS records as part of this repository PR; this PR
 removes repository-owned GitHub Pages wiring but does not change GitHub,
 Cloudflare, DNS, Supabase, passwords, or production data.
 

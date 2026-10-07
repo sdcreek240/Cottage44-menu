@@ -143,14 +143,16 @@ using Cloudflare Pages workflows.
 
 The verified `dev.cottage44-menu-pages.pages.dev` and
 `cottage44-menu-pages.pages.dev` deployments serve the menu, admin page, and
-JSON Functions correctly. To complete the cutover, manually disable the
-repository's **Settings → Pages** source and remove its
-`menu.cottage44.co.za` custom-domain entry. Then remove the old GitHub Pages
-DNS records at the DNS provider, add and verify the hostname under Cloudflare
-Pages **Custom domains**, and set `main` as the production branch. Verify
-`/api/health`, `/api/plates/today`, and `/admin/` before switching users to the
-custom hostname. Do not delete DNS records before Cloudflare is ready; these
-provider actions are intentionally not automated here.
+JSON Functions correctly. GitHub Pages still reports a built legacy site at
+`https://sdcreek240.github.io/Cottage44-menu/` sourced from `main`/`docs`;
+the available token cannot remove it through the API. Manually disable the
+source under repository **Settings → Pages**. The public DNS CNAME is already
+correct (`menu.cottage44.co.za` → `cottage44-menu-pages.pages.dev`), but the
+hostname currently has a TLS handshake failure while Cloudflare reports it
+inactive. After disabling GitHub Pages, recheck or re-add the custom domain in
+Cloudflare Pages and wait for certificate issuance. Do not change DNS in this
+repository task. Verify `/api/health`, `/api/plates/today`, and `/admin/`
+before switching users to the custom hostname.
 
 ## CI/CD and repository rules
 
