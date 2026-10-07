@@ -322,10 +322,11 @@ test("renders tomorrow's scheduled plate separately from today's empty state", a
   const tomorrow = new Date(`${currentServiceDate()}T00:00:00.000Z`);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const tomorrowDate = tomorrow.toISOString().slice(0, 10);
+  const beforeCutoff = new Date(`${currentServiceDate()}T12:00:00.000Z`);
   const { elements } = createPage("light", async () => jsonResponse({
     plate: null,
     nextPlate: validPlate({ serviceDate: tomorrowDate, name: "Tomorrow stew" }),
-  }));
+  }), beforeCutoff);
   await flushPromises();
   assert.match(elements["#today-plate"].children[0].textContent, /No plate/);
   assert.equal(

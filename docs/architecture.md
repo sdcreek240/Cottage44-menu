@@ -1,4 +1,4 @@
-# Cottage 44 architecture proposal
+# Cottage 44 architecture
 
 Status: owner workflow implemented; Supabase account setup and hosting remain manual
 
@@ -10,12 +10,8 @@ Status: owner workflow implemented; Supabase account setup and hosting remain ma
   plate from the Pages API.
 - Cloudflare Pages Functions provide the public daily-plate API and secured
   owner-management endpoints.
-- GitHub Pages currently publishes `main`/`docs` at
-  `https://menu.cottage44.co.za/`, with HTTPS enforced.
-- GitHub's Pages usage policy says Pages must not be used for a site primarily
-  intended to facilitate commercial transactions. Since this is a restaurant
-  website, the proposed production host is Cloudflare Pages. The Pages project
-  has not been configured or deployed.
+- Cloudflare Pages publishes the complete application, including `docs/` and
+  `functions/`, at `https://menu.cottage44.co.za/`.
 
 ## Proposed architecture
 
@@ -140,14 +136,11 @@ Cloudflare Pages setup and DNS changes are outside this implementation.
 
 ### Current external cutover blocker
 
-The verified `dev.cottage44-menu-pages.pages.dev` and
-`cottage44-menu-pages.pages.dev` deployments serve the menu, admin page, and
-JSON Functions correctly. The custom domain `menu.cottage44.co.za` still
-serves GitHub Pages and returns 404 for the API routes, so the owner workflow
-cannot work there yet. This is an external Cloudflare custom-domain/DNS
-cutover task, not an application defect; do not change DNS as part of an app
-code review. Until the cutover is completed, use the Cloudflare Pages URL for
-admin sign-in and API-backed menu data.
+The verified `dev.cottage44-menu-pages.pages.dev`,
+`cottage44-menu-pages.pages.dev`, and
+`menu.cottage44.co.za` deployments serve the menu, admin page, and JSON
+Functions correctly. The custom domain is the production hostname; use the
+Pages aliases only for deployment and preview diagnostics.
 
 ## CI/CD and repository rules
 
@@ -159,15 +152,12 @@ should run for PRs into both `dev` and `main`, and for pushes to both branches.
 The Cloudflare preview workflow is intentionally a `pull_request_target` job so
 fork PRs can use the repository's Cloudflare secrets. It does not check out or
 execute fork code: it downloads the merge-ref archive with the read-only
-GitHub token, copies only `docs/` into a staging directory, and deploys that
-static directory. Configure `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID` as repository Actions secrets and create the Pages
-project `cottage44-menu-pages`. Successful PRs receive a deterministic preview
-URL comment at
-`https://pr-<number>.cottage44-menu-pages.pages.dev`.
-The exact check names should be made required only after the workflow has run
-successfully at least once. The initial workflow now provides `checks`,
-and this check is configured as required on both protected branches.
+GitHub token, stages both `docs/` and `functions/`, and deploys the complete
+application with Wrangler `4.148.0`. Configure `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` in the `Cottage44_menu` environment and create the
+Pages project `cottage44-menu-pages`. The workflow smoke-tests the immutable
+deployment URL and posts the deterministic preview alias
+`https://pr-<number>.cottage44-menu-pages.pages.dev` on pull requests.
 
 Protect both `dev` and `main`: require pull requests and successful required CI
 checks, do not require a separate approval (the owner chose a solo-friendly
@@ -175,8 +165,9 @@ gate), disallow force pushes and branch deletion, and enforce the rules for
 administrators. Do not merge a failing or unchecked change. Production
 deployment should run only after a validated update reaches `main`.
 
-The PR, administrator-enforcement, conversation-resolution, force-push, and
-deletion protections have been enabled on both branches. The required status context is `checks`, with strict up-to-date checks enabled.
+The repository ruleset must require the meaningful CI and deployment checks
+after they have been verified on the protected branch. Do not require obsolete
+or static-only deployment statuses.
 
 ### Automated Supabase migrations
 
@@ -185,8 +176,8 @@ The existing `.github/workflows/ci.yml` detects migration changes on pushes to
 `supabase/migrations/` changed, the `Apply Supabase migrations` job uses the
 `Cottage44_menu` GitHub environment and Supabase CLI to link the configured
 project and run `supabase db push --linked --yes`. The CLI applies only
-migrations missing from that project's migration history. Existing CI check
-names and the Cloudflare/GitHub Pages deployment configuration are unchanged.
+migrations missing from that project's migration history. Existing CI check names and the Cloudflare deployment configuration are kept
+consistent with the current Pages architecture.
 
 Before the first migration-triggering push, configure the existing GitHub
 environment at **Settings → Environments → Cottage44_menu**:
@@ -318,7 +309,6 @@ References checked 7 October 2026:
 
 - [Supabase pricing and free-plan limits](https://supabase.com/pricing)
 - [Cloudflare Workers and Pages pricing](https://developers.cloudflare.com/workers/platform/pricing/)
-- [GitHub Pages limits and usage policy](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
 
 ## Local setup and manual account steps
 
@@ -352,9 +342,7 @@ References checked 7 October 2026:
    intended Supabase project. The variable names are identical in both
    environments. Do not add service-role credentials.
 6. Deploy the reviewed branch to Cloudflare Pages before using `/admin/`.
-   GitHub Pages can render the static files but does not run these API
-   Functions. This work has not created a Pages project, deployed, or changed
-   DNS. The runtime configuration values have not been supplied or written
+   Runtime configuration values are managed in Cloudflare and are not written
    into this repository.
 7. In Cloudflare Pages **Settings → Variables and Secrets**, set the non-secret
    `ADMIN_SITE_URL` binding in **Production** to
