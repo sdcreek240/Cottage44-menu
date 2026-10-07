@@ -68,11 +68,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          echo "Deploying the preview with Wrangler 4.148.0."
           npx --yes wrangler@4.148.0 pages deploy . \
             --project-name=cottage44-menu-pages \
-            --branch="pr-${PREVIEW_PR_NUMBER}" | tee /tmp/wrangler-pages-deploy.log
+            --branch="pr-${PREVIEW_PR_NUMBER}" |
+            tee "/tmp/wrangler-pages-deploy-${PREVIEW_PR_NUMBER}.log"
 
-          deployment_url="$(grep -Eo 'https://[[:alnum:].-]+\.pages\.dev' /tmp/wrangler-pages-deploy.log | tail -n 1)"
+          deployment_url="$(grep -Eo 'https://[[:alnum:].-]+\.pages\.dev' \
+            "/tmp/wrangler-pages-deploy-${PREVIEW_PR_NUMBER}.log" | tail -n 1)"
           if [[ -z "$deployment_url" ]]; then
             echo "::error::Wrangler completed without reporting a Pages deployment URL."
             exit 1
