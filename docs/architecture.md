@@ -160,7 +160,7 @@ fork PRs can use the repository's Cloudflare secrets. It does not check out or
 execute fork code: it downloads the merge-ref archive with the read-only
 GitHub token, stages both `docs/` and `functions/`, and deploys the complete
 application with Wrangler `4.148.0`. Configure `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID` in the `Cottage44_menu` environment and create the
+`CLOUDFLARE_ACCOUNT_ID` in the `Cottage44_menu_preview` environment and create the
 Pages project `cottage44-menu-pages`. The workflow smoke-tests the immutable
 deployment URL and posts the deterministic preview alias
 `https://pr-<number>.cottage44-menu-pages.pages.dev` on pull requests.

@@ -74,7 +74,8 @@ Pull requests into `dev` receive a Cloudflare Pages preview from
 `pull_request_target` so fork pull requests can use the repository's
 deployment secrets, but it downloads the PR merge archive through the GitHub
 API and deploys the frontend together with `functions/`; it never checks out
-or executes fork code. It uses Wrangler `4.148.0`, the `Cottage44_menu`
+or executes fork code. It uses Wrangler `4.148.0`, the
+`Cottage44_menu_preview`
 environment, and blocking smoke tests for the frontend and `/api/health`.
 Each successful deployment is linked at
 `https://pr-<number>.cottage44-menu-pages.pages.dev` in the pull request.
