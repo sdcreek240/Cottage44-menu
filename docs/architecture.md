@@ -132,9 +132,11 @@ Admin writes only accept public URLs from this bucket.
 - **Production release:** promote reviewed, CI-passing changes from `dev` to
   `main`; only `main` deploys to the production site.
 
-Cloudflare Pages setup and DNS changes are outside this implementation.
+Cloudflare Pages setup and DNS changes are outside this implementation. The
+repository-side cleanup is limited to removing the old `docs/CNAME` mapping and
+using Cloudflare Pages workflows.
 
-### Current external cutover blocker
+### Manual hosting cutover checklist
 
 The verified `dev.cottage44-menu-pages.pages.dev`,
 `cottage44-menu-pages.pages.dev`, and
