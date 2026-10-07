@@ -17,6 +17,10 @@ const previewWorkflow = await readFile(
   path.join(root, ".github/workflows/cloudflare-preview.yml"),
   "utf8",
 );
+const productionSmokeWorkflow = await readFile(
+  path.join(root, ".github/workflows/production-smoke.yml"),
+  "utf8",
+);
 
 test("CI is limited to the integration branches", () => {
   assert.match(ciWorkflow, /pull_request:\s+branches:\s+- dev\s+- main/s);
@@ -64,4 +68,16 @@ test("Cloudflare fork previews deploy the application without unsafe checkout", 
   );
   assert.doesNotMatch(previewWorkflow, /actions\/checkout/);
   assert.doesNotMatch(previewWorkflow, /allow-unsafe-pr-checkout/);
+});
+
+test("production smoke tests wait for the Cloudflare deployment and verify the live app", () => {
+  assert.match(productionSmokeWorkflow, /workflow_run:/);
+  assert.match(productionSmokeWorkflow, /workflows:\s+- CI/s);
+  assert.match(productionSmokeWorkflow, /branches:\s+- main/s);
+  assert.match(productionSmokeWorkflow, /name == "Cloudflare Pages"/);
+  assert.match(productionSmokeWorkflow, /completed:success/);
+  assert.match(productionSmokeWorkflow, /https:\/\/menu\.cottage44\.co\.za/);
+  assert.match(productionSmokeWorkflow, /api\/health/);
+  assert.match(productionSmokeWorkflow, /Cottage 44/);
+  assert.match(productionSmokeWorkflow, /exit 1/);
 });

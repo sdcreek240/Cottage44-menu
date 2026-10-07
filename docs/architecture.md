@@ -24,7 +24,7 @@ flowchart LR
   owner[Owner browser] -->|password sign-in, HttpOnly cookie| pages
   api -->|password verification and refresh| auth[Supabase Auth]
   github[GitHub Actions CI] -->|checks PRs| repo[GitHub repository]
-  repo -->|main deploy| pages
+  repo -->|Cloudflare Pages Git deployment| pages
 ```
 
 ### Frontend
@@ -148,6 +148,12 @@ Use GitHub Actions for pull-request checks and branch pushes. The intended gate
 is dependency installation, lint, type checking, unit/integration tests, and a
 production build; add end-to-end checks as the app gains those workflows. Checks
 should run for PRs into both `dev` and `main`, and for pushes to both branches.
+
+Cloudflare Pages' Git integration is the only deployment mechanism. A push to
+`main` deploys the complete application through the `cottage44-menu-pages`
+project. `.github/workflows/production-smoke.yml` waits for the matching
+`Cloudflare Pages` check on that commit, then verifies the production frontend
+and `/api/health`. It does not issue a second production deployment.
 
 The Cloudflare preview workflow is intentionally a `pull_request_target` job so
 fork PRs can use the repository's Cloudflare secrets. It does not check out or

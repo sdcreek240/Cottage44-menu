@@ -49,8 +49,13 @@ V8 coverage collection, type-checks the Functions, checks static files and
 JavaScript syntax, and builds the Pages Functions bundle with Wrangler. The
 coverage summary measures `docs/menu.js`; HTML, CSS, the inline theme script,
 and API files are not included in that LCOV report. The `javascript-coverage`
-artifact contains LCOV and text reports. CI does not deploy to a hosting
-provider.
+artifact contains LCOV and text reports.
+
+Cloudflare Pages' Git integration is the only deployment mechanism. A push to
+`main` creates the `Cloudflare Pages` deployment check. The
+`Production smoke tests` workflow waits for that check on the same commit and
+then verifies the production frontend and `/api/health`; it does not deploy a
+second copy of the application.
 
 Successful CI runs on this repository upload `coverage/lcov.info` to Codecov.
 Pull requests from forks use Codecov's public-repository tokenless path, so
