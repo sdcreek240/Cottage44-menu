@@ -112,11 +112,22 @@ const adminSelectors = [
   "#menu-item-description",
   "#menu-item-price",
   "#menu-item-category",
-  "#menu-category-order",
+  "#menu-category-sort-order",
   "#menu-item-order",
   "#menu-item-active",
   "#menu-items-list",
   "#menu-items-state",
+  "#menu-categories-state",
+  "#menu-categories-list",
+  "#menu-category-form",
+  "#menu-category-id",
+  "#menu-category-name",
+  "#menu-category-sort-order",
+  "#menu-category-active",
+  "#menu-category-editor-title",
+  "#save-menu-category",
+  "#cancel-menu-category-edit",
+  "#new-menu-category",
   "#menu-editor-title",
   "#menu-editor-panel",
   "#save-menu-item",
@@ -320,13 +331,23 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   let todaysPlate = null;
   const scheduledPlates = new Map();
   let historyEvents = [];
+  let menuCategories = [{
+    id: "20000000-0000-4000-8000-000000000003",
+    name: "Lunch",
+    categoryOrder: 2,
+    active: true,
+  }, {
+    id: "20000000-0000-4000-8000-000000000007",
+    name: "Specials",
+    categoryOrder: 6,
+    active: true,
+  }];
   let menuItems = [{
     id: "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0",
     name: "Loaded fries",
     description: "Chips, cheese sauce, cheese and bacon",
     priceCents: 3800,
-    category: "Lunch",
-    categoryOrder: 2,
+    categoryId: "20000000-0000-4000-8000-000000000003",
     itemOrder: 4,
     active: true,
   }];
@@ -393,7 +414,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       return Response.json({ plates: savedPlates });
     }
     if (url === "/api/admin/menu" && !options.method) {
-      return Response.json({ items: menuItems });
+      return Response.json({ categories: menuCategories, items: menuItems });
     }
     if (url === "/api/admin/menu" && options.method === "POST") {
       const item = {
@@ -402,6 +423,25 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       };
       menuItems = [...menuItems, item];
       return Response.json({ item }, { status: 201 });
+    }
+    if (url === "/api/admin/menu/categories" && options.method === "POST") {
+      const category = {
+        id: "20000000-0000-4000-8000-000000000008",
+        ...JSON.parse(options.body),
+      };
+      menuCategories = [...menuCategories, category];
+      return Response.json({ category }, { status: 201 });
+    }
+    if (url.startsWith("/api/admin/menu/categories/") && options.method === "PATCH") {
+      const id = url.split("/").at(-1);
+      const category = {
+        ...menuCategories.find((savedCategory) => savedCategory.id === id),
+        ...JSON.parse(options.body),
+      };
+      menuCategories = menuCategories.map((savedCategory) =>
+        savedCategory.id === id ? category : savedCategory
+      );
+      return Response.json({ category });
     }
     if (url.startsWith("/api/admin/menu/") && options.method === "PATCH") {
       const id = url.split("/").at(-1);
@@ -696,10 +736,13 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.equal(elements["#menu-view"].hidden, false);
   assert.equal(elements["#nav-menu"].getAttribute("aria-current"), "page");
   assert.equal(elements["#menu-items-list"].children.length, 1);
+  assert.equal(elements["#menu-categories-list"].children.length, 2);
+  assert.equal(elements["#menu-item-category"].children.length, 3);
   const menuEditButton = elements["#menu-items-list"].children[0].children[1].children[0];
   menuEditButton.listeners.click();
   assert.equal(elements["#menu-editor-title"].textContent, "Edit Loaded fries");
   assert.equal(elements["#menu-item-price"].value, "38.00");
+  elements["#menu-item-category"].value = "20000000-0000-4000-8000-000000000007";
   elements["#menu-item-name"].value = "Loaded fries updated";
   await elements["#menu-form"].listeners.submit({ preventDefault() {} });
   assert.equal(
@@ -707,6 +750,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
       url.startsWith("/api/admin/menu/") && options.method === "PATCH").options.body).name,
     "Loaded fries updated",
   );
+  assert.equal(menuItems[0].categoryId, "20000000-0000-4000-8000-000000000007");
   assert.equal(elements["#menu-items-list"].children[0].children[0].children[0].textContent, "Loaded fries updated");
   const deactivate = elements["#menu-items-list"].children[0].children[1].children[1];
   await deactivate.listeners.click();
@@ -714,6 +758,18 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.equal(elements["#menu-items-list"].children[0].children[1].children[1].textContent, "Restore");
   await elements["#menu-items-list"].children[0].children[1].children[1].listeners.click();
   assert.equal(menuItems[0].active, true);
+  elements["#new-menu-category"].listeners.click();
+  elements["#menu-category-name"].value = "Seasonal";
+  elements["#menu-category-sort-order"].value = "7";
+  await elements["#menu-category-form"].listeners.submit({ preventDefault() {} });
+  assert.equal(menuCategories.at(-1).name, "Seasonal");
+  assert.equal(elements["#menu-categories-list"].children.length, 3);
+  const editCategory = elements["#menu-categories-list"].children[0].children[1].children[0];
+  editCategory.listeners.click();
+  assert.equal(elements["#menu-category-editor-title"].textContent, "Edit Lunch");
+  elements["#menu-category-name"].value = "Lunch & hot food";
+  await elements["#menu-category-form"].listeners.submit({ preventDefault() {} });
+  assert.equal(menuCategories[0].name, "Lunch & hot food");
   elements["#nav-today-plan"].listeners.click({ preventDefault() {} });
   context.window.location.hash = "#today-plan-view";
   windowListeners.hashchange();
@@ -756,7 +812,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.match(elements["#history-state"].textContent, /No history yet/);
   assert.deepEqual(
     scheduledFrequencies,
-    [330, 220, 660, 880, 660, 880, 660, 880, 660, 880],
+    [330, 220, 660, 880, 660, 880, 660, 880, 660, 880, 660, 880, 660, 880],
     "success toast schedules a distinct rising tone",
   );
 

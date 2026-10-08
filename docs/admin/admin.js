@@ -82,7 +82,6 @@ const menuItemNameInput = document.querySelector("#menu-item-name");
 const menuItemDescriptionInput = document.querySelector("#menu-item-description");
 const menuItemPriceInput = document.querySelector("#menu-item-price");
 const menuItemCategoryInput = document.querySelector("#menu-item-category");
-const menuCategoryOrderInput = document.querySelector("#menu-category-order");
 const menuItemOrderInput = document.querySelector("#menu-item-order");
 const menuItemActiveInput = document.querySelector("#menu-item-active");
 const menuItemsList = document.querySelector("#menu-items-list");
@@ -92,8 +91,20 @@ const menuEditorPanel = document.querySelector("#menu-editor-panel");
 const saveMenuItemButton = document.querySelector("#save-menu-item");
 const cancelMenuEditButton = document.querySelector("#cancel-menu-edit");
 const newMenuItemButton = document.querySelector("#new-menu-item");
+const menuCategoriesList = document.querySelector("#menu-categories-list");
+const menuCategoriesState = document.querySelector("#menu-categories-state");
+const menuCategoryForm = document.querySelector("#menu-category-form");
+const menuCategoryIdInput = document.querySelector("#menu-category-id");
+const menuCategoryNameInput = document.querySelector("#menu-category-name");
+const menuCategorySortOrderInput = document.querySelector("#menu-category-sort-order");
+const menuCategoryActiveInput = document.querySelector("#menu-category-active");
+const menuCategoryEditorTitle = document.querySelector("#menu-category-editor-title");
+const saveMenuCategoryButton = document.querySelector("#save-menu-category");
+const cancelMenuCategoryEditButton = document.querySelector("#cancel-menu-category-edit");
+const newMenuCategoryButton = document.querySelector("#new-menu-category");
 
 let plates = [];
+let menuCategories = [];
 let menuItems = [];
 let upcomingAssignments = [];
 let historyEvents = [];
@@ -400,6 +411,17 @@ function normalizeSearch(value) {
     .trim();
 }
 
+function isMenuCategory(value) {
+  return typeof value === "object" &&
+    value !== null &&
+    typeof value.id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id) &&
+    typeof value.name === "string" &&
+    value.name.trim().length > 0 &&
+    Number.isSafeInteger(value.categoryOrder) &&
+    typeof value.active === "boolean";
+}
+
 function isMenuItem(value) {
   return typeof value === "object" &&
     value !== null &&
@@ -410,11 +432,80 @@ function isMenuItem(value) {
     typeof value.description === "string" &&
     Number.isSafeInteger(value.priceCents) &&
     value.priceCents >= 0 &&
-    typeof value.category === "string" &&
-    value.category.trim().length > 0 &&
-    Number.isSafeInteger(value.categoryOrder) &&
+    typeof value.categoryId === "string" &&
+    menuCategories.some((category) => category.id === value.categoryId) &&
     Number.isSafeInteger(value.itemOrder) &&
     typeof value.active === "boolean";
+}
+
+function renderMenuCategoryOptions(selectedId = menuItemCategoryInput.value) {
+  menuItemCategoryInput.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = menuCategories.length
+    ? "Choose a category"
+    : "Create a category first";
+  menuItemCategoryInput.append(placeholder);
+  for (const category of menuCategories) {
+    const option = document.createElement("option");
+    option.value = category.id;
+    option.textContent = `${category.name}${category.active ? "" : " (Inactive)"}`;
+    menuItemCategoryInput.append(option);
+  }
+  menuItemCategoryInput.value = selectedId;
+  menuItemCategoryInput.disabled = menuCategories.length === 0;
+  saveMenuItemButton.disabled = menuCategories.length === 0;
+}
+
+function renderMenuCategories() {
+  menuCategoriesList.replaceChildren();
+  menuCategoriesState.textContent = menuCategories.length
+    ? `${menuCategories.length} saved ${menuCategories.length === 1 ? "category" : "categories"}.`
+    : "No menu categories have been added yet.";
+  for (const category of menuCategories) {
+    const row = document.createElement("li");
+    row.className = "plate-item";
+    const details = document.createElement("div");
+    details.className = "plate-item__details";
+    const name = document.createElement("span");
+    name.className = "plate-item__name";
+    name.textContent = `${category.name}${category.active ? "" : " (Inactive)"}`;
+    const count = menuItems.filter((item) => item.categoryId === category.id).length;
+    const summary = document.createElement("span");
+    summary.className = "plate-item__description";
+    summary.textContent = `Display order ${category.categoryOrder} · ${count} ${count === 1 ? "item" : "items"}`;
+    details.append(name, summary);
+
+    const actions = document.createElement("div");
+    actions.className = "plate-item__actions";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "button button--quiet";
+    edit.textContent = "Edit";
+    edit.setAttribute("aria-label", `Edit ${category.name}`);
+    edit.addEventListener("click", () => editMenuCategory(category));
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "button button--quiet";
+    toggle.textContent = category.active ? "Deactivate" : "Restore";
+    toggle.setAttribute(
+      "aria-label",
+      `${category.active ? "Deactivate" : "Restore"} ${category.name}`,
+    );
+    toggle.addEventListener("click", () =>
+      setMenuCategoryActive(category, !category.active, toggle)
+    );
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button button--quiet";
+    remove.textContent = "Delete";
+    remove.setAttribute("aria-label", `Delete ${category.name}`);
+    remove.addEventListener("click", () => deleteMenuCategory(category, remove));
+    actions.append(edit, toggle, remove);
+    row.append(details, actions);
+    menuCategoriesList.append(row);
+  }
+  renderMenuCategoryOptions();
 }
 
 function renderMenuItems() {
@@ -429,11 +520,13 @@ function renderMenuItems() {
     details.className = "plate-item__details";
     const name = document.createElement("span");
     name.className = "plate-item__name";
+    const category = menuCategories.find((entry) => entry.id === menuItem.categoryId);
     name.textContent = `${menuItem.name}${menuItem.active ? "" : " (Inactive)"}`;
     const description = document.createElement("span");
     description.className = "plate-item__description";
     description.textContent = [
-      menuItem.category,
+      category?.name ?? "Unknown category",
+      category && !category.active ? "Inactive category" : "",
       `R${menuItem.priceCents % 100 === 0
         ? menuItem.priceCents / 100
         : (menuItem.priceCents / 100).toFixed(2)}`,
@@ -468,10 +561,19 @@ async function loadMenuItems() {
   menuItemsState.textContent = "Menu items are loading…";
   try {
     const result = await apiRequest("/api/admin/menu");
-    if (!Array.isArray(result.items) || !result.items.every(isMenuItem)) {
+    if (
+      !Array.isArray(result.categories) ||
+      !result.categories.every(isMenuCategory) ||
+      !Array.isArray(result.items)
+    ) {
+      throw new Error("The menu catalog response was invalid.");
+    }
+    menuCategories = result.categories;
+    if (!result.items.every(isMenuItem)) {
       throw new Error("The menu catalog response was invalid.");
     }
     menuItems = result.items;
+    renderMenuCategories();
     renderMenuItems();
     return true;
   } catch (error) {
@@ -487,7 +589,6 @@ function resetMenuForm() {
   menuItemDescriptionInput.value = "";
   menuItemPriceInput.value = "";
   menuItemCategoryInput.value = "";
-  menuCategoryOrderInput.value = "0";
   menuItemOrderInput.value = "0";
   menuItemActiveInput.checked = true;
   cancelMenuEditButton.hidden = true;
@@ -501,8 +602,7 @@ function editMenuItem(item) {
   menuItemNameInput.value = item.name;
   menuItemDescriptionInput.value = item.description;
   menuItemPriceInput.value = (item.priceCents / 100).toFixed(2);
-  menuItemCategoryInput.value = item.category;
-  menuCategoryOrderInput.value = String(item.categoryOrder);
+  renderMenuCategoryOptions(item.categoryId);
   menuItemOrderInput.value = String(item.itemOrder);
   menuItemActiveInput.checked = item.active;
   cancelMenuEditButton.hidden = false;
@@ -526,8 +626,7 @@ async function setMenuItemActive(item, active, button) {
       name: item.name,
       description: item.description,
       priceCents: item.priceCents,
-      category: item.category,
-      categoryOrder: item.categoryOrder,
+      categoryId: item.categoryId,
       itemOrder: item.itemOrder,
       active,
     };
@@ -559,23 +658,20 @@ menuForm.addEventListener("submit", async (event) => {
     name: menuItemNameInput.value.trim(),
     description: menuItemDescriptionInput.value.trim(),
     priceCents: Math.round(price * 100),
-    category: menuItemCategoryInput.value.trim(),
-    categoryOrder: Number(menuCategoryOrderInput.value),
+    categoryId: menuItemCategoryInput.value,
     itemOrder: Number(menuItemOrderInput.value),
     active: menuItemActiveInput.checked,
   };
   if (
     !fields.name ||
-    !fields.category ||
+    !fields.categoryId ||
     !Number.isFinite(price) ||
     price < 0 ||
     price > 1_000_000 ||
-    !Number.isSafeInteger(fields.categoryOrder) ||
-    fields.categoryOrder < 0 ||
     !Number.isSafeInteger(fields.itemOrder) ||
     fields.itemOrder < 0
   ) {
-    setStatus("Enter a valid name, price, category, and non-negative order.", "error");
+    setStatus("Enter a valid name, price, category, and non-negative item order.", "error");
     endBusy(saveMenuItemButton);
     return;
   }
@@ -607,20 +703,132 @@ newMenuItemButton.addEventListener("click", () => {
 cancelMenuEditButton.addEventListener("click", resetMenuForm);
 menuItemCategoryInput.addEventListener("change", () => {
   const matchingItems = menuItems.filter((item) =>
-    item.category === menuItemCategoryInput.value.trim()
+    item.categoryId === menuItemCategoryInput.value
   );
-  if (matchingItems.length) {
-    menuCategoryOrderInput.value = String(matchingItems[0].categoryOrder);
-    menuItemOrderInput.value = String(
-      Math.max(...matchingItems.map((item) => item.itemOrder)) + 1,
+  menuItemOrderInput.value = String(
+    Math.max(-1, ...matchingItems.map((item) => item.itemOrder)) + 1,
+  );
+});
+
+function resetMenuCategoryForm() {
+  menuCategoryForm.reset();
+  menuCategoryIdInput.value = "";
+  menuCategoryNameInput.value = "";
+  menuCategorySortOrderInput.value = String(
+    Math.max(-1, ...menuCategories.map((category) => category.categoryOrder)) + 1,
+  );
+  menuCategoryActiveInput.checked = true;
+  menuCategoryEditorTitle.textContent = "Add category";
+  cancelMenuCategoryEditButton.hidden = true;
+}
+
+function editMenuCategory(category) {
+  menuCategoryIdInput.value = category.id;
+  menuCategoryNameInput.value = category.name;
+  menuCategorySortOrderInput.value = String(category.categoryOrder);
+  menuCategoryActiveInput.checked = category.active;
+  menuCategoryEditorTitle.textContent = `Edit ${category.name}`;
+  cancelMenuCategoryEditButton.hidden = false;
+  menuCategoryNameInput.focus({ preventScroll: true });
+}
+
+async function setMenuCategoryActive(category, active, button) {
+  if (!beginBusy(button, active ? "Restoring…" : "Deactivating…")) {
+    return;
+  }
+  try {
+    await apiRequest(`/api/admin/menu/categories/${encodeURIComponent(category.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: category.name,
+        categoryOrder: category.categoryOrder,
+        active,
+      }),
+    });
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${category.name}” ${active ? "restored to" : "removed from"} the public menu.`
+        : "The category was updated, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
     );
-  } else {
-    menuCategoryOrderInput.value = String(
-      Math.max(-1, ...menuItems.map((item) => item.categoryOrder)) + 1,
+  } catch (error) {
+    setStatus(`The category could not be updated. ${error.message}`, "error");
+  } finally {
+    endBusy(button);
+  }
+}
+
+async function deleteMenuCategory(category, button) {
+  if (!beginBusy(button, "Deleting…")) {
+    return;
+  }
+  try {
+    await apiRequest(`/api/admin/menu/categories/${encodeURIComponent(category.id)}`, {
+      method: "DELETE",
+    });
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${category.name}” has been deleted.`
+        : "The category was deleted, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
     );
-    menuItemOrderInput.value = "0";
+  } catch (error) {
+    setStatus(`The category could not be deleted. ${error.message}`, "error");
+  } finally {
+    endBusy(button);
+  }
+}
+
+menuCategoryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!beginBusy(saveMenuCategoryButton, "Saving…")) {
+    return;
+  }
+  const fields = {
+    name: menuCategoryNameInput.value.trim(),
+    categoryOrder: Number(menuCategorySortOrderInput.value),
+    active: menuCategoryActiveInput.checked,
+  };
+  if (
+    !fields.name ||
+    !Number.isSafeInteger(fields.categoryOrder) ||
+    fields.categoryOrder < 0
+  ) {
+    setStatus("Enter a valid category name and non-negative display order.", "error");
+    endBusy(saveMenuCategoryButton);
+    return;
+  }
+  try {
+    const id = menuCategoryIdInput.value;
+    await apiRequest(
+      id ? `/api/admin/menu/categories/${encodeURIComponent(id)}` : "/api/admin/menu/categories",
+      {
+        method: id ? "PATCH" : "POST",
+        body: JSON.stringify(fields),
+      },
+    );
+    resetMenuCategoryForm();
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${fields.name}” has been ${id ? "updated" : "added"} as a menu category.`
+        : "The category was saved, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
+    );
+  } catch (error) {
+    setStatus(`The category could not be saved. ${error.message}`, "error");
+  } finally {
+    endBusy(saveMenuCategoryButton);
   }
 });
+
+newMenuCategoryButton.addEventListener("click", () => {
+  resetMenuCategoryForm();
+  menuCategoryNameInput.focus();
+});
+cancelMenuCategoryEditButton.addEventListener("click", resetMenuCategoryForm);
 
 function matchingPlates(searchText, selectedId = "") {
   const query = normalizeSearch(searchText);

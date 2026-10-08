@@ -210,6 +210,37 @@
               <h2 id="menu-admin-title">Menu items</h2>
               <p class="muted">Changes are reflected on the public menu. Deactivated items stay saved and can be restored.</p>
             </div>
+            <section class="panel menu-categories-panel" aria-labelledby="menu-categories-title">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Organize the public menu</p>
+                  <h3 id="menu-categories-title">Categories</h3>
+                </div>
+                <button id="new-menu-category" class="button button--quiet" type="button">New category</button>
+              </div>
+              <form id="menu-category-form" class="menu-category-form">
+                <input id="menu-category-id" type="hidden">
+                <h4 id="menu-category-editor-title">Add category</h4>
+                <label for="menu-category-name">Category name</label>
+                <input id="menu-category-name" maxlength="80" required>
+                <div class="menu-order-fields">
+                  <div>
+                    <label for="menu-category-sort-order">Display order</label>
+                    <input id="menu-category-sort-order" type="number" min="0" max="1000" step="1" required>
+                  </div>
+                  <label class="remember-option" for="menu-category-active">
+                    <input id="menu-category-active" type="checkbox" checked>
+                    Display on the public menu
+                  </label>
+                </div>
+                <div class="inline-form">
+                  <button id="save-menu-category" class="button" type="submit">Save category</button>
+                  <button id="cancel-menu-category-edit" class="button button--quiet" type="button" hidden>Cancel edit</button>
+                </div>
+              </form>
+              <p id="menu-categories-state" class="muted" role="status" aria-live="polite">Menu categories are loading…</p>
+              <ul id="menu-categories-list" class="plate-list"></ul>
+            </section>
             <div class="menu-admin-grid">
               <section id="menu-editor-panel" class="panel menu-editor-panel" aria-labelledby="menu-editor-title" tabindex="-1">
                 <div class="section-heading">
@@ -228,16 +259,10 @@
                   <label for="menu-item-price">Price (ZAR)</label>
                   <input id="menu-item-price" type="number" min="0" max="1000000" step="0.01" required>
                   <label for="menu-item-category">Category</label>
-                  <input id="menu-item-category" maxlength="80" required>
-                  <div class="menu-order-fields">
-                    <div>
-                      <label for="menu-category-order">Category order</label>
-                      <input id="menu-category-order" type="number" min="0" max="1000" step="1" required>
-                    </div>
-                    <div>
-                      <label for="menu-item-order">Item order</label>
-                      <input id="menu-item-order" type="number" min="0" max="10000" step="1" required>
-                    </div>
+                  <select id="menu-item-category" required></select>
+                  <div>
+                    <label for="menu-item-order">Item order</label>
+                    <input id="menu-item-order" type="number" min="0" max="10000" step="1" required>
                   </div>
                   <label class="remember-option" for="menu-item-active">
                     <input id="menu-item-active" type="checkbox" checked>

@@ -35,9 +35,9 @@ browser Supabase client or a separate frontend application.
 
 The public page requests `/api/menu` and `/api/plates/today` from the same
 origin. Menu categories, item descriptions, prices, and order come from
-`menu_items`; the menu script builds the existing category navigation and
-presentation from that response. It shows a safe unavailable message if the
-menu endpoint fails. The plate API renders the plate's name, description,
+`menu_categories` and `menu_items`; the menu script builds the existing
+category navigation and presentation from that response. It shows a safe
+unavailable message if the menu endpoint fails. The plate API renders the plate's name, description,
 Johannesburg service date, price, and optional photo. Loading, no-plate,
 invalid-response, and request-failure states are handled without exposing
 server errors; an unavailable image is replaced with a text fallback. Tests
@@ -111,11 +111,14 @@ setup steps below.
 
 ### Data and images
 
-Use migrations for the schema. The menu migration creates `menu_items` with
-validated item/category fields, price cents, active state, stable category and
-item ordering, timestamps, public active-item reads, and owner-only writes.
-Its ordered seed retains every menu item, price, description, and category from
-the former static frontend array. The initial plate migration creates `plates` and
+Use migrations for the schema. The menu migrations create `menu_categories` and
+`menu_items` as separate entities, with a restrictive category foreign key,
+validated fields, price cents, active state, stable category and item ordering,
+timestamps, public active reads, and owner-only writes. The category seed
+retains the six original category names and order, and the item migration
+retains every menu item, price, description, category assignment, and order
+from the former static frontend array. Owners manage categories and their
+items from the dashboard's Menu section. The initial plate migration creates `plates` and
 `daily_plates`, with field constraints, timestamps, a foreign key, an index,
 and a primary key ensuring only one plate per service date. Its public RLS
 policies allow `anon` to select only the current South African service date
