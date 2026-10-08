@@ -308,22 +308,22 @@ export async function loadAdminMenu(
   context: AdminApiContext,
   dependencies: AdminDependencies,
 ): Promise<{ categories: MenuCategory[]; items: MenuItem[] }> {
-  const [categories, items] = await Promise.all([
-    fetchAdminRows(
-      context,
-      `/rest/v1/menu_categories?select=${MENU_CATEGORY_SELECT}&order=category_order.asc,id.asc&limit=500`,
-      isMenuCategory,
-      "Menu category",
-      dependencies,
-    ),
-    fetchAdminRows(
-      context,
-      `/rest/v1/menu_items?select=${MENU_ITEM_SELECT}&order=category_id.asc,item_order.asc,id.asc&limit=500`,
-      isMenuItem,
-      "Menu item",
-      dependencies,
-    ),
-  ]);
+  const categoryValidator = isMenuCategory;
+  const categoriesRequest = fetchAdminRows(
+    context,
+    `/rest/v1/menu_categories?select=${MENU_CATEGORY_SELECT}&order=category_order.asc,id.asc&limit=500`,
+    categoryValidator,
+    "Menu category",
+    dependencies,
+  );
+  const itemsRequest = fetchAdminRows(
+    context,
+    `/rest/v1/menu_items?select=${MENU_ITEM_SELECT}&order=category_id.asc,item_order.asc,id.asc&limit=500`,
+    isMenuItem,
+    "Menu item",
+    dependencies,
+  );
+  const [categories, items] = await Promise.all([categoriesRequest, itemsRequest]);
   return { categories, items };
 }
 

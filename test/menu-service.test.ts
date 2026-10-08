@@ -78,6 +78,7 @@ test("menu validators accept complete rows and reject malformed, unsafe, and out
   assert.equal(isMenuCategory([]), false);
   assert.equal(isMenuCategory(category({ id: "bad" })), false);
   assert.equal(isMenuCategory(category({ name: " " })), false);
+  assert.equal(isMenuCategory(category({ name: "x".repeat(81) })), false);
   assert.equal(isMenuCategory(category({ category_order: -1 })), false);
   assert.equal(isMenuCategory(category({ category_order: 1001 })), false);
   assert.equal(isMenuCategory(category({ active: 1 })), false);
@@ -87,6 +88,7 @@ test("menu validators accept complete rows and reject malformed, unsafe, and out
   assert.equal(isMenuItem(null), false);
   assert.equal(isMenuItem(item({ price_cents: "38" })), false);
   assert.equal(isMenuItem(item({ price_cents: 100_000_001 })), false);
+  assert.equal(isMenuItem(item({ name: "x".repeat(121) })), false);
   assert.equal(isMenuItem(item({ category_id: "bad" })), false);
   assert.equal(isMenuItem(item({ item_order: 1.2 })), false);
   assert.equal(isMenuItem(item({ description: "x".repeat(1001) })), false);
@@ -225,6 +227,35 @@ test("public menu returns empty without an item query when all categories are in
   assert.equal(calls, 1);
 });
 
+test("public menu omits active categories that contain no active items", async () => {
+  let itemRequestCount = 0;
+  const result = await loadPublicMenu(config, adminFetch((url) => {
+    if (url.pathname.endsWith("/menu_categories")) {
+      return response([category()]);
+    }
+    itemRequestCount += 1;
+    return response([]);
+  }));
+  assert.deepEqual(result, []);
+  assert.equal(itemRequestCount, 1);
+});
+
+test("public menu rejects database responses larger than the requested limit", async () => {
+  const tooManyCategories = Array.from({ length: 501 }, () => category());
+  await assert.rejects(
+    () => loadPublicMenu(config, adminFetch(() => response(tooManyCategories))),
+    /menu category database response was invalid/,
+  );
+  await assert.rejects(
+    () => loadPublicMenu(config, adminFetch((url) =>
+      url.pathname.endsWith("/menu_categories")
+        ? response([category()])
+        : response(Array.from({ length: 501 }, () => item()))
+    )),
+    /menu item database response was invalid/,
+  );
+});
+
 test("public menu service reports network, HTTP, JSON, schema, and relationship failures", async () => {
   const failures: Array<(url: URL) => Response | Promise<Response>> = [
     () => { throw new Error("network"); },
@@ -298,6 +329,12 @@ test("admin menu service loads both tables and rejects a bad category or item re
       url.pathname.endsWith("/menu_categories") ? response([], 503) : response([item()])
     )),
     /Menu category request failed/,
+  );
+  await assert.rejects(
+    () => loadAdminMenu(adminContext, adminFetch((url) =>
+      url.pathname.endsWith("/menu_categories") ? response([{}]) : response([item()])
+    )),
+    /Menu category database response was invalid/,
   );
   await assert.rejects(
     () => loadAdminMenu(adminContext, adminFetch(() => {
@@ -426,6 +463,24 @@ test("category delete rejects in-use categories without deleting and handles rac
       : response([])),
   );
   assert.equal(absent, "not_found");
+
+  for (const rows of [
+    [{ id: anotherCategoryId }],
+    [{ id: categoryId }, { id: categoryId }],
+  ]) {
+    const inconsistentDeleteResult = await removeAdminMenuCategory(
+      adminContext,
+      categoryId,
+      adminFetch((url) => url.pathname.endsWith("/menu_items")
+        ? response([])
+        : response(rows)),
+    );
+    assert.equal(
+      inconsistentDeleteResult,
+      "not_found",
+      "unexpected delete representations must not be reported as successful deletion",
+    );
+  }
 });
 
 test("category deletion surfaces lookup, malformed, and non-conflict delete failures", async () => {
@@ -452,6 +507,19 @@ test("category deletion surfaces lookup, malformed, and non-conflict delete fail
       adminFetch((url) => url.pathname.endsWith("/menu_items")
         ? response([])
         : response({}, 500)),
+    ),
+    /Menu category deletion failed/,
+  );
+  await assert.rejects(
+    () => removeAdminMenuCategory(
+      adminContext,
+      categoryId,
+      adminFetch((url) => {
+        if (url.pathname.endsWith("/menu_items")) {
+          return response([]);
+        }
+        throw new Error("delete transport");
+      }),
     ),
     /Menu category deletion failed/,
   );
