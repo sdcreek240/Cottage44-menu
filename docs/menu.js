@@ -247,6 +247,8 @@ function renderPlate(target, plate) {
     image.src = plate.imageUrl;
     image.alt = `Photo of ${plate.name}`;
     image.loading = "lazy";
+    image.decoding = "async";
+    image.fetchPriority = "low";
     image.addEventListener("error", () => {
       image.hidden = true;
       image.removeAttribute("src");
