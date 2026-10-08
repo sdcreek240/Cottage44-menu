@@ -296,10 +296,12 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   let nextTimer = 1;
   let savedPlates = [];
   let todaysPlate = null;
+  let failSessionBootstrap = true;
   const scheduledPlates = new Map();
   let historyEvents = [];
   let nextHistoryId = 1;
   let failSignIn = true;
+  let failSignInService = true;
   let failImageUpload = false;
   let failSave = false;
   let failSchedule = false;
@@ -329,9 +331,33 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   async function fetchMock(url, options = {}) {
     calls.push({ url, options });
     if (url === "/api/admin/session" && !options.method) {
+      if (failSessionBootstrap) {
+        failSessionBootstrap = false;
+        return Response.json(
+          {
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: "The service is temporarily unavailable.",
+            },
+          },
+          { status: 503 },
+        );
+      }
       return Response.json({ authenticated: false });
     }
     if (url === "/api/admin/session" && options.method === "POST") {
+      if (failSignInService) {
+        failSignInService = false;
+        return Response.json(
+          {
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: "The service is temporarily unavailable.",
+            },
+          },
+          { status: 503 },
+        );
+      }
       if (failSignIn) {
         return Response.json({ error: "Email or password is incorrect." }, { status: 401 });
       }
@@ -593,6 +619,14 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     console,
   });
   vm.runInContext(adminScript, context, { filename: "docs/admin/admin.js" });
+  await new Promise(setImmediate);
+  assert.equal(elements["#sign-in-panel"].hidden, false);
+  assert.equal(elements["#dashboard"].hidden, true);
+  assert.equal(elements["#status"].dataset.kind, "warning");
+  assert.equal(
+    elements["#status-message"].textContent,
+    "We couldn't verify your saved session. You can still try to sign in.",
+  );
   assert.equal(audioContextCount, 0, "audio stays locked until user interaction");
   await document.listeners.pointerdown();
   assert.equal(audioContextCount, 1);
@@ -619,10 +653,22 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   }
 
   await elements["#sign-in-form"].listeners.submit({ preventDefault() {} });
+  assert.equal(
+    elements["#status-message"].textContent,
+    "The service is temporarily unavailable.",
+  );
+  assert.equal(elements["#status"].dataset.kind, "error");
+  assert.deepEqual(scheduledFrequencies, [330, 220]);
+
+  await elements["#sign-in-form"].listeners.submit({ preventDefault() {} });
   assert.equal(elements["#status-message"].textContent, "Email or password is incorrect.");
   assert.equal(elements["#status"].dataset.kind, "error");
   assert.equal(elements["#status-icon"].textContent, "×");
-  assert.deepEqual(scheduledFrequencies, [330, 220], "error toast schedules a low descending tone");
+  assert.deepEqual(
+    scheduledFrequencies,
+    [330, 220, 330, 220],
+    "each error toast schedules a low descending tone",
+  );
   assert.equal(elements["#dashboard"].hidden, true);
   context.setStatus("Information", "info");
   assert.equal(elements["#status-icon"].textContent, "i");
@@ -676,7 +722,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.match(elements["#history-state"].textContent, /No history yet/);
   assert.deepEqual(
     scheduledFrequencies,
-    [330, 220, 660, 880],
+    [330, 220, 330, 220, 660, 880],
     "success toast schedules a distinct rising tone",
   );
 

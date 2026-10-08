@@ -72,6 +72,10 @@ authenticated owner session. A checked **Remember me** choice (default) gives
 the cookie a 30-day lifetime; unchecked sessions use a browser-session cookie
 without a persistent expiry.
 Supabase refresh responses preserve the selected duration.
+With no admin cookie, the initial session check returns a normal signed-out
+state without contacting Supabase. If checking a saved cookie fails, the login
+page keeps sign-in available and reports that the saved session could not be
+verified; the password sign-in request still reports its own service outage.
 Password reset requests return the same response for every email and only
 send mail to the configured owner. The reset email's one-time token hash is
 exchanged by a Pages Function; after it verifies the owner with Supabase, a

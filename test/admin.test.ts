@@ -138,6 +138,79 @@ test("sign-in rejects non-owner emails and cross-origin requests before contacti
   assert.equal(fetchCalls, 0);
 });
 
+test("an unauthenticated session check skips Supabase and returns a normal signed-out state", async () => {
+  let fetchCalls = 0;
+  const response = await handleSessionRequest(
+    new Request("https://menu.example/api/admin/session"),
+    env,
+    {
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        throw new Error("Supabase should not be called without a session cookie");
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { authenticated: false });
+  assert.equal(fetchCalls, 0);
+});
+
+test("a saved-session verification outage does not prevent a subsequent password sign-in", async () => {
+  const logs: string[] = [];
+  let fetchCalls = 0;
+  const fetchImpl = async () => {
+    fetchCalls += 1;
+    if (fetchCalls === 1) {
+      throw new Error("temporary Supabase Auth network failure");
+    }
+    return jsonResponse({
+      access_token: "access-test-token",
+      refresh_token: "refresh-test-token",
+      user: { email: OWNER_EMAIL },
+    });
+  };
+  const dependencies = {
+    fetchImpl,
+    logger: { error: (message: string) => logs.push(message) },
+  };
+  const sessionCheck = await handleSessionRequest(
+    sessionRequest(false),
+    env,
+    dependencies,
+  );
+  const signIn = await handleSessionRequest(
+    new Request("https://menu.example/api/admin/session", {
+      method: "POST",
+      headers: {
+        Origin: "https://menu.example",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: OWNER_EMAIL,
+        password: "test-password",
+      }),
+    }),
+    env,
+    dependencies,
+  );
+
+  assert.equal(sessionCheck.status, 503);
+  assert.deepEqual(await sessionCheck.json(), {
+    error: {
+      code: "SERVICE_UNAVAILABLE",
+      message: "The service is temporarily unavailable.",
+    },
+  });
+  assert.equal(signIn.status, 200);
+  assert.deepEqual(await signIn.json(), {
+    authenticated: true,
+    email: OWNER_EMAIL,
+  });
+  assert.equal(fetchCalls, 2);
+  assert.deepEqual(logs, ["[admin] Supabase auth request failed."]);
+});
+
 function recoveryRequest(
   path: string,
   body: unknown,
