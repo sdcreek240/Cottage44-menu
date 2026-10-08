@@ -25,11 +25,13 @@ const dashboard = document.querySelector("#dashboard");
 const dashboardViews = {
   "today-plan-view": document.querySelector("#today-plan-view"),
   "plate-library-view": document.querySelector("#plate-library-view"),
+  "menu-view": document.querySelector("#menu-view"),
   "history-view": document.querySelector("#history-view"),
 };
 const dashboardNavigation = {
   "today-plan-view": document.querySelector("#nav-today-plan"),
   "plate-library-view": document.querySelector("#nav-plate-library"),
+  "menu-view": document.querySelector("#nav-menu"),
   "history-view": document.querySelector("#nav-history"),
 };
 const signOutButton = document.querySelector("#sign-out");
@@ -74,8 +76,36 @@ const averagePriceButton = document.querySelector("#average-price");
 const scheduleSummary = document.querySelector("#schedule-summary");
 const weeklyPlanList = document.querySelector("#weekly-plan-list");
 const clearTodayButton = document.querySelector("#clear-today");
+const menuForm = document.querySelector("#menu-form");
+const menuItemIdInput = document.querySelector("#menu-item-id");
+const menuItemNameInput = document.querySelector("#menu-item-name");
+const menuItemDescriptionInput = document.querySelector("#menu-item-description");
+const menuItemPriceInput = document.querySelector("#menu-item-price");
+const menuItemCategoryInput = document.querySelector("#menu-item-category");
+const menuItemOrderInput = document.querySelector("#menu-item-order");
+const menuItemActiveInput = document.querySelector("#menu-item-active");
+const menuItemsList = document.querySelector("#menu-items-list");
+const menuItemsState = document.querySelector("#menu-items-state");
+const menuEditorTitle = document.querySelector("#menu-editor-title");
+const menuEditorPanel = document.querySelector("#menu-editor-panel");
+const saveMenuItemButton = document.querySelector("#save-menu-item");
+const cancelMenuEditButton = document.querySelector("#cancel-menu-edit");
+const newMenuItemButton = document.querySelector("#new-menu-item");
+const menuCategoriesList = document.querySelector("#menu-categories-list");
+const menuCategoriesState = document.querySelector("#menu-categories-state");
+const menuCategoryForm = document.querySelector("#menu-category-form");
+const menuCategoryIdInput = document.querySelector("#menu-category-id");
+const menuCategoryNameInput = document.querySelector("#menu-category-name");
+const menuCategorySortOrderInput = document.querySelector("#menu-category-sort-order");
+const menuCategoryActiveInput = document.querySelector("#menu-category-active");
+const menuCategoryEditorTitle = document.querySelector("#menu-category-editor-title");
+const saveMenuCategoryButton = document.querySelector("#save-menu-category");
+const cancelMenuCategoryEditButton = document.querySelector("#cancel-menu-category-edit");
+const newMenuCategoryButton = document.querySelector("#new-menu-category");
 
 let plates = [];
+let menuCategories = [];
+let menuItems = [];
 let upcomingAssignments = [];
 let historyEvents = [];
 let historyNextBefore = null;
@@ -262,6 +292,13 @@ function apiErrorMessage(body, fallback) {
   return fallback;
 }
 
+class ApiRequestError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function apiRequest(path, options = {}) {
   let response;
   try {
@@ -293,8 +330,9 @@ async function apiRequest(path, options = {}) {
       showSignedOut();
       throw new Error("Your session expired. Please sign in again.");
     }
-    throw new Error(
+    throw new ApiRequestError(
       apiErrorMessage(body, "The request could not be completed. Please try again."),
+      response.status,
     );
   }
   return body;
@@ -326,6 +364,9 @@ async function showDashboard() {
   showDashboardView(window.location.hash.slice(1));
   signOutButton.hidden = false;
   await loadDashboard();
+  if (window.location.hash === "#menu-view") {
+    await loadMenuItems();
+  }
 }
 
 function formatPrice(priceCents) {
@@ -377,6 +418,425 @@ function normalizeSearch(value) {
     .toLowerCase()
     .trim();
 }
+
+function isMenuCategory(value) {
+  return typeof value === "object" &&
+    value !== null &&
+    typeof value.id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id) &&
+    typeof value.name === "string" &&
+    value.name.trim().length > 0 &&
+    Number.isSafeInteger(value.categoryOrder) &&
+    typeof value.active === "boolean";
+}
+
+function isMenuItem(value) {
+  return typeof value === "object" &&
+    value !== null &&
+    typeof value.id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id) &&
+    typeof value.name === "string" &&
+    value.name.trim().length > 0 &&
+    typeof value.description === "string" &&
+    Number.isSafeInteger(value.priceCents) &&
+    value.priceCents >= 0 &&
+    typeof value.categoryId === "string" &&
+    menuCategories.some((category) => category.id === value.categoryId) &&
+    Number.isSafeInteger(value.itemOrder) &&
+    typeof value.active === "boolean";
+}
+
+function renderMenuCategoryOptions(selectedId = menuItemCategoryInput.value) {
+  menuItemCategoryInput.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = menuCategories.length
+    ? "Choose a category"
+    : "Create a category first";
+  menuItemCategoryInput.append(placeholder);
+  for (const category of menuCategories) {
+    const option = document.createElement("option");
+    option.value = category.id;
+    option.textContent = `${category.name}${category.active ? "" : " (Inactive)"}`;
+    menuItemCategoryInput.append(option);
+  }
+  menuItemCategoryInput.value = selectedId;
+  menuItemCategoryInput.disabled = menuCategories.length === 0;
+  saveMenuItemButton.disabled = menuCategories.length === 0;
+}
+
+function renderMenuCategories() {
+  menuCategoriesList.replaceChildren();
+  menuCategoriesState.textContent = menuCategories.length
+    ? `${menuCategories.length} saved ${menuCategories.length === 1 ? "category" : "categories"}.`
+    : "No menu categories have been added yet.";
+  for (const category of menuCategories) {
+    const row = document.createElement("li");
+    row.className = "plate-item";
+    const details = document.createElement("div");
+    details.className = "plate-item__details";
+    const name = document.createElement("span");
+    name.className = "plate-item__name";
+    name.textContent = `${category.name}${category.active ? "" : " (Inactive)"}`;
+    const count = menuItems.filter((item) => item.categoryId === category.id).length;
+    const summary = document.createElement("span");
+    summary.className = "plate-item__description";
+    summary.textContent = `Display order ${category.categoryOrder} · ${count} ${count === 1 ? "item" : "items"}`;
+    details.append(name, summary);
+
+    const actions = document.createElement("div");
+    actions.className = "plate-item__actions";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "button button--quiet";
+    edit.textContent = "Edit";
+    edit.setAttribute("aria-label", `Edit ${category.name}`);
+    edit.addEventListener("click", () => editMenuCategory(category));
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "button button--quiet";
+    toggle.textContent = category.active ? "Deactivate" : "Restore";
+    toggle.setAttribute(
+      "aria-label",
+      `${category.active ? "Deactivate" : "Restore"} ${category.name}`,
+    );
+    toggle.addEventListener("click", () =>
+      setMenuCategoryActive(category, !category.active, toggle)
+    );
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button button--quiet";
+    remove.textContent = "Delete";
+    remove.setAttribute("aria-label", `Delete ${category.name}`);
+    remove.addEventListener("click", () => deleteMenuCategory(category, remove));
+    actions.append(edit, toggle, remove);
+    row.append(details, actions);
+    menuCategoriesList.append(row);
+  }
+  renderMenuCategoryOptions();
+}
+
+function renderMenuItems() {
+  menuItemsList.replaceChildren();
+  menuItemsState.textContent = menuItems.length
+    ? `${menuItems.length} saved menu ${menuItems.length === 1 ? "item" : "items"}.`
+    : "No menu items have been added yet.";
+  for (const menuItem of menuItems) {
+    const row = document.createElement("li");
+    row.className = "plate-item";
+    const details = document.createElement("div");
+    details.className = "plate-item__details";
+    const name = document.createElement("span");
+    name.className = "plate-item__name";
+    const category = menuCategories.find((entry) => entry.id === menuItem.categoryId);
+    name.textContent = `${menuItem.name}${menuItem.active ? "" : " (Inactive)"}`;
+    const description = document.createElement("span");
+    description.className = "plate-item__description";
+    description.textContent = [
+      category?.name ?? "Unknown category",
+      category && !category.active ? "Inactive category" : "",
+      `R${menuItem.priceCents % 100 === 0
+        ? menuItem.priceCents / 100
+        : (menuItem.priceCents / 100).toFixed(2)}`,
+      menuItem.description,
+    ].filter(Boolean).join(" · ");
+    details.append(name, description);
+
+    const actions = document.createElement("div");
+    actions.className = "plate-item__actions";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "button button--quiet";
+    edit.textContent = "Edit";
+    edit.setAttribute("aria-label", `Edit ${menuItem.name}`);
+    edit.addEventListener("click", () => editMenuItem(menuItem));
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "button button--quiet";
+    toggle.textContent = menuItem.active ? "Deactivate" : "Restore";
+    toggle.setAttribute(
+      "aria-label",
+      `${menuItem.active ? "Deactivate" : "Restore"} ${menuItem.name}`,
+    );
+    toggle.addEventListener("click", () => setMenuItemActive(menuItem, !menuItem.active, toggle));
+    actions.append(edit, toggle);
+    row.append(details, actions);
+    menuItemsList.append(row);
+  }
+}
+
+async function loadMenuItems() {
+  menuItemsState.textContent = "Menu items are loading…";
+  try {
+    const result = await apiRequest("/api/admin/menu");
+    if (
+      !Array.isArray(result.categories) ||
+      !result.categories.every(isMenuCategory) ||
+      !Array.isArray(result.items)
+    ) {
+      throw new Error("The menu catalog response was invalid.");
+    }
+    menuCategories = result.categories;
+    if (!result.items.every(isMenuItem)) {
+      throw new Error("The menu catalog response was invalid.");
+    }
+    menuItems = result.items;
+    renderMenuCategories();
+    renderMenuItems();
+    return true;
+  } catch (error) {
+    menuItemsState.textContent = error.message;
+    return false;
+  }
+}
+
+function resetMenuForm() {
+  menuForm.reset();
+  menuItemIdInput.value = "";
+  menuItemNameInput.value = "";
+  menuItemDescriptionInput.value = "";
+  menuItemPriceInput.value = "";
+  menuItemCategoryInput.value = "";
+  menuItemOrderInput.value = "0";
+  menuItemActiveInput.checked = true;
+  cancelMenuEditButton.hidden = true;
+  menuEditorTitle.textContent = "Add menu item";
+  menuEditorPanel.classList.remove("menu-editor-panel--editing");
+}
+
+function editMenuItem(item) {
+  showDashboardView("menu-view");
+  menuItemIdInput.value = item.id;
+  menuItemNameInput.value = item.name;
+  menuItemDescriptionInput.value = item.description;
+  menuItemPriceInput.value = (item.priceCents / 100).toFixed(2);
+  renderMenuCategoryOptions(item.categoryId);
+  menuItemOrderInput.value = String(item.itemOrder);
+  menuItemActiveInput.checked = item.active;
+  cancelMenuEditButton.hidden = false;
+  menuEditorTitle.textContent = `Edit ${item.name}`;
+  menuEditorPanel.classList.add("menu-editor-panel--editing");
+  menuEditorPanel.scrollIntoView({
+    behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth",
+    block: "start",
+  });
+  menuItemNameInput.focus({ preventScroll: true });
+}
+
+async function setMenuItemActive(item, active, button) {
+  if (!beginBusy(button, active ? "Restoring…" : "Deactivating…")) {
+    return;
+  }
+  try {
+    const fields = {
+      name: item.name,
+      description: item.description,
+      priceCents: item.priceCents,
+      categoryId: item.categoryId,
+      itemOrder: item.itemOrder,
+      active,
+    };
+    await apiRequest(`/api/admin/menu/${encodeURIComponent(item.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    });
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${item.name}” ${active ? "restored to" : "removed from"} the public menu.`
+        : "The menu item was updated, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
+    );
+  } catch (error) {
+    setStatus(`The menu item could not be updated. ${error.message}`, "error");
+  } finally {
+    endBusy(button);
+  }
+}
+
+menuForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!beginBusy(saveMenuItemButton, "Saving…")) {
+    return;
+  }
+  const price = Number(menuItemPriceInput.value);
+  const fields = {
+    name: menuItemNameInput.value.trim(),
+    description: menuItemDescriptionInput.value.trim(),
+    priceCents: Math.round(price * 100),
+    categoryId: menuItemCategoryInput.value,
+    itemOrder: Number(menuItemOrderInput.value),
+    active: menuItemActiveInput.checked,
+  };
+  if (
+    !fields.name ||
+    !fields.categoryId ||
+    !Number.isFinite(price) ||
+    price < 0 ||
+    price > 1_000_000 ||
+    !Number.isSafeInteger(fields.itemOrder) ||
+    fields.itemOrder < 0
+  ) {
+    setStatus("Enter a valid name, price, category, and non-negative item order.", "error");
+    endBusy(saveMenuItemButton);
+    return;
+  }
+  try {
+    const id = menuItemIdInput.value;
+    await apiRequest(id ? `/api/admin/menu/${encodeURIComponent(id)}` : "/api/admin/menu", {
+      method: id ? "PATCH" : "POST",
+      body: JSON.stringify(fields),
+    });
+    resetMenuForm();
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${fields.name}” has been ${id ? "updated" : "added"} to the menu.`
+        : "The menu item was saved, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
+    );
+  } catch (error) {
+    setStatus(`The menu item could not be saved. ${error.message}`, "error");
+  } finally {
+    endBusy(saveMenuItemButton);
+  }
+});
+
+newMenuItemButton.addEventListener("click", () => {
+  resetMenuForm();
+  menuItemNameInput.focus();
+});
+cancelMenuEditButton.addEventListener("click", resetMenuForm);
+menuItemCategoryInput.addEventListener("change", () => {
+  const matchingItems = menuItems.filter((item) =>
+    item.categoryId === menuItemCategoryInput.value
+  );
+  menuItemOrderInput.value = String(
+    Math.max(-1, ...matchingItems.map((item) => item.itemOrder)) + 1,
+  );
+});
+
+function resetMenuCategoryForm() {
+  menuCategoryForm.reset();
+  menuCategoryIdInput.value = "";
+  menuCategoryNameInput.value = "";
+  menuCategorySortOrderInput.value = String(
+    Math.max(-1, ...menuCategories.map((category) => category.categoryOrder)) + 1,
+  );
+  menuCategoryActiveInput.checked = true;
+  menuCategoryEditorTitle.textContent = "Add category";
+  cancelMenuCategoryEditButton.hidden = true;
+}
+
+function editMenuCategory(category) {
+  menuCategoryIdInput.value = category.id;
+  menuCategoryNameInput.value = category.name;
+  menuCategorySortOrderInput.value = String(category.categoryOrder);
+  menuCategoryActiveInput.checked = category.active;
+  menuCategoryEditorTitle.textContent = `Edit ${category.name}`;
+  cancelMenuCategoryEditButton.hidden = false;
+  menuCategoryNameInput.focus({ preventScroll: true });
+}
+
+async function setMenuCategoryActive(category, active, button) {
+  if (!beginBusy(button, active ? "Restoring…" : "Deactivating…")) {
+    return;
+  }
+  try {
+    await apiRequest(`/api/admin/menu/categories/${encodeURIComponent(category.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: category.name,
+        categoryOrder: category.categoryOrder,
+        active,
+      }),
+    });
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${category.name}” ${active ? "restored to" : "removed from"} the public menu.`
+        : "The category was updated, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
+    );
+  } catch (error) {
+    setStatus(`The category could not be updated. ${error.message}`, "error");
+  } finally {
+    endBusy(button);
+  }
+}
+
+async function deleteMenuCategory(category, button) {
+  if (!beginBusy(button, "Deleting…")) {
+    return;
+  }
+  try {
+    await apiRequest(`/api/admin/menu/categories/${encodeURIComponent(category.id)}`, {
+      method: "DELETE",
+    });
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${category.name}” has been deleted.`
+        : "The category was deleted, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
+    );
+  } catch (error) {
+    setStatus(`The category could not be deleted. ${error.message}`, "error");
+  } finally {
+    endBusy(button);
+  }
+}
+
+menuCategoryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!beginBusy(saveMenuCategoryButton, "Saving…")) {
+    return;
+  }
+  const fields = {
+    name: menuCategoryNameInput.value.trim(),
+    categoryOrder: Number(menuCategorySortOrderInput.value),
+    active: menuCategoryActiveInput.checked,
+  };
+  if (
+    !fields.name ||
+    !Number.isSafeInteger(fields.categoryOrder) ||
+    fields.categoryOrder < 0
+  ) {
+    setStatus("Enter a valid category name and non-negative display order.", "error");
+    endBusy(saveMenuCategoryButton);
+    return;
+  }
+  try {
+    const id = menuCategoryIdInput.value;
+    await apiRequest(
+      id ? `/api/admin/menu/categories/${encodeURIComponent(id)}` : "/api/admin/menu/categories",
+      {
+        method: id ? "PATCH" : "POST",
+        body: JSON.stringify(fields),
+      },
+    );
+    resetMenuCategoryForm();
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${fields.name}” has been ${id ? "updated" : "added"} as a menu category.`
+        : "The category was saved, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
+    );
+  } catch (error) {
+    setStatus(`The category could not be saved. ${error.message}`, "error");
+  } finally {
+    endBusy(saveMenuCategoryButton);
+  }
+});
+
+newMenuCategoryButton.addEventListener("click", () => {
+  resetMenuCategoryForm();
+  menuCategoryNameInput.focus();
+});
+cancelMenuCategoryEditButton.addEventListener("click", resetMenuCategoryForm);
 
 function matchingPlates(searchText, selectedId = "") {
   const query = normalizeSearch(searchText);
@@ -1271,7 +1731,11 @@ for (const [viewId, link] of Object.entries(dashboardNavigation)) {
 
 window.addEventListener("hashchange", () => {
   if (!dashboard.hidden) {
-    showDashboardView(window.location.hash.slice(1));
+    const viewId = window.location.hash.slice(1);
+    showDashboardView(viewId);
+    if (viewId === "menu-view") {
+      void loadMenuItems();
+    }
   }
 });
 
@@ -1298,7 +1762,14 @@ async function initialize() {
       return;
     }
   } catch (error) {
-    setStatus(error.message, "error");
+    const sessionCouldNotBeVerified =
+      error instanceof ApiRequestError && error.status === 503;
+    setStatus(
+      sessionCouldNotBeVerified
+        ? "We couldn't verify your saved session. You can still try to sign in."
+        : error.message,
+      sessionCouldNotBeVerified ? "warning" : "error",
+    );
   }
 }
 

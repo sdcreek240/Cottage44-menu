@@ -6,10 +6,10 @@ Status: owner workflow implemented; Supabase account setup and hosting remain ma
 
 - The public menu and the `/admin/` owner page are plain HTML, CSS, and
   JavaScript under `docs/`.
-- Menu data is in `docs/menu.js`. The public page also reads only today's
-  plate from the Pages API.
-- Cloudflare Pages Functions provide the public daily-plate API and secured
-  owner-management endpoints.
+- Menu data is stored in Supabase and rendered by `docs/menu.js`. The public
+  page also reads today's plate from the Pages API.
+- Cloudflare Pages Functions provide the public menu and daily-plate APIs and
+  secured owner-management endpoints.
 - Cloudflare Pages publishes the complete application, including `docs/` and
   `functions/`, at `https://menu.cottage44.co.za/`.
 
@@ -33,14 +33,18 @@ Keep the existing menu and its design. Public pages remain static and do not
 require a custom server to be running. The API is a Pages Function, not a
 browser Supabase client or a separate frontend application.
 
-The public page requests `/api/plates/today` from the same origin and renders
-the plate's name, description, Johannesburg service date, price, and optional
-photo. Loading, no-plate, invalid-response, and request-failure states are
-handled without exposing server errors; an unavailable image is replaced with
-a text fallback. Tests use mocked API responses and do not require Supabase.
-For a live preview, Cloudflare Pages must build this feature branch with Pages
-Functions enabled, the required Supabase bindings configured, and the plate
-migration applied. Verify the preview's `/api/plates/today` route returns
+The public page requests `/api/menu` and `/api/plates/today` from the same
+origin. Menu categories, item descriptions, prices, and order come from
+`menu_categories` and `menu_items`; the menu script builds the existing
+category navigation and presentation from that response. It shows a safe
+unavailable message if the menu endpoint fails. The plate API renders the plate's name, description,
+Johannesburg service date, price, and optional photo. Loading, no-plate,
+invalid-response, and request-failure states are handled without exposing
+server errors; an unavailable image is replaced with a text fallback. Tests
+use mocked API responses and do not require Supabase. For a live preview,
+Cloudflare Pages must build this feature branch with Pages Functions enabled,
+the required Supabase bindings configured, and the plate and menu migrations
+applied. Verify the preview's `/api/plates/today` route returns
 `application/json` with `{ "plate": null }` or a valid current-date plate.
 A preview served from an older static-only deployment can return an HTML
 fallback for the API path, in which case the page will intentionally show its
@@ -49,20 +53,24 @@ safe unavailable message rather than a plate.
 ### Backend, authentication, and authorization
 
 Use Cloudflare Pages Functions as a serverless API layer in front of Supabase
-Postgres. The public API exposes `GET /api/health` and
-`GET /api/plates/today`; the latter queries the service date in the
+Postgres. The public API exposes `GET /api/health`, `GET /api/menu`, and
+`GET /api/plates/today`; the menu endpoint returns active
+menu items grouped by category in their configured display order. The plates
+endpoint queries the service date in the
 `Africa/Johannesburg` timezone and returns `{ "plate": null }` if none is
 assigned. A populated response contains only the plate ID, service date, name,
 description, price in cents, and optional HTTPS image URL. Owner routes under
 `/api/admin/` provide sign-in, plate create/update/delete, image upload,
-today's assignment, upcoming planning, and paged permanent assignment history.
-They return no database errors, internal columns, stack traces, or credentials.
-The browser does not access Supabase directly.
+today's assignment, upcoming planning, menu item create/update/deactivate/delete,
+and paged permanent assignment history. They return no database errors,
+internal columns, stack traces, or credentials. The browser does not access
+Supabase directly.
 
 The Functions use the project URL and a Supabase publishable key from runtime
-bindings. The public API exposes only the current South African service date
-and the plate fields needed by the menu; it does not expose the catalog or
-history. The public site remains usable if the API is unavailable.
+bindings. Public menu reads expose only active menu fields; public plate reads
+expose only the current South African service date and plate fields needed by
+the page. Neither endpoint exposes admin history. The public site remains
+usable if either API is unavailable.
 
 `/admin/` uses Supabase Auth email/password verification through the server.
 The access and refresh tokens are held only in a `Secure` (on HTTPS),
@@ -72,6 +80,10 @@ authenticated owner session. A checked **Remember me** choice (default) gives
 the cookie a 30-day lifetime; unchecked sessions use a browser-session cookie
 without a persistent expiry.
 Supabase refresh responses preserve the selected duration.
+With no admin cookie, the initial session check returns a normal signed-out
+state without contacting Supabase. If checking a saved cookie fails, the login
+page keeps sign-in available and reports that the saved session could not be
+verified; the password sign-in request still reports its own service outage.
 Password reset requests return the same response for every email and only
 send mail to the configured owner. The reset email's one-time token hash is
 exchanged by a Pages Function; after it verifies the owner with Supabase, a
@@ -103,7 +115,14 @@ setup steps below.
 
 ### Data and images
 
-Use migrations for the schema. The initial migration creates `plates` and
+Use migrations for the schema. The menu migrations create `menu_categories` and
+`menu_items` as separate entities, with a restrictive category foreign key,
+validated fields, price cents, active state, stable category and item ordering,
+timestamps, public active reads, and owner-only writes. The category seed
+retains the six original category names and order, and the item migration
+retains every menu item, price, description, category assignment, and order
+from the former static frontend array. Owners manage categories and their
+items from the dashboard's Menu section. The initial plate migration creates `plates` and
 `daily_plates`, with field constraints, timestamps, a foreign key, an index,
 and a primary key ensuring only one plate per service date. Its public RLS
 policies allow `anon` to select only the current South African service date

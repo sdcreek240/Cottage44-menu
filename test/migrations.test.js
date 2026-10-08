@@ -19,6 +19,13 @@ const historyMigration = await readFile(
   ),
   "utf8",
 );
+const menuMigration = await readFile(
+  path.join(
+    root,
+    "supabase/migrations/20261008100000_normalize_menu_categories.sql",
+  ),
+  "utf8",
+);
 
 test("placeholder cleanup deletes only the two authorized schedule links", () => {
   assert.equal(
@@ -70,4 +77,31 @@ test("plate deletion selects its snapshot only from that service date", () => {
     /and \(\s*current_plate ->> 'id' = old\.plate_id::text\s+or previous_plate ->> 'id' = old\.plate_id::text\s*\)/,
   );
   assert.match(deletionLookup, /order by id desc/);
+});
+
+test("menu normalization preserves category order and assigns items with restrictive relationships", () => {
+  const seededCategories = [...menuMigration.matchAll(
+    /\('([0-9a-f-]+)', '([^']+)', (\d+)\)/g,
+  )].map(([, id, name, order]) => [id, name, Number(order)]);
+  assert.deepEqual(seededCategories, [
+    ["20000000-0000-4000-8000-000000000001", "Toasties", 0],
+    ["20000000-0000-4000-8000-000000000002", "Healthy", 1],
+    ["20000000-0000-4000-8000-000000000003", "Lunch", 2],
+    ["20000000-0000-4000-8000-000000000004", "Burgers", 3],
+    ["20000000-0000-4000-8000-000000000005", "Singles", 4],
+    ["20000000-0000-4000-8000-000000000006", "Breakfast", 5],
+  ]);
+  assert.match(menuMigration, /on conflict \(name\) do nothing/);
+  assert.match(menuMigration, /select category, min\(category_order\) as category_order/);
+  assert.match(menuMigration, /set category_id = categories\.id[\s\S]*?categories\.name = items\.category/);
+  assert.match(menuMigration, /alter column category_id set not null/);
+  assert.match(
+    menuMigration,
+    /foreign key \(category_id\)[\s\S]*?references public\.menu_categories \(id\)[\s\S]*?on delete restrict/i,
+  );
+  assert.match(menuMigration, /drop column category;/);
+  assert.match(menuMigration, /drop column category_order;/);
+  assert.match(menuMigration, /menu_categories_public_read[\s\S]*?using \(active\)/);
+  assert.match(menuMigration, /menu_categories_owner_(?:read|insert|update|delete)/);
+  assert.doesNotMatch(menuMigration, /on delete cascade/i);
 });
