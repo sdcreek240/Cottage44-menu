@@ -292,6 +292,13 @@ function apiErrorMessage(body, fallback) {
   return fallback;
 }
 
+class ApiRequestError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function apiRequest(path, options = {}) {
   let response;
   try {
@@ -323,8 +330,9 @@ async function apiRequest(path, options = {}) {
       showSignedOut();
       throw new Error("Your session expired. Please sign in again.");
     }
-    throw new Error(
+    throw new ApiRequestError(
       apiErrorMessage(body, "The request could not be completed. Please try again."),
+      response.status,
     );
   }
   return body;
@@ -1754,7 +1762,14 @@ async function initialize() {
       return;
     }
   } catch (error) {
-    setStatus(error.message, "error");
+    const sessionCouldNotBeVerified =
+      error instanceof ApiRequestError && error.status === 503;
+    setStatus(
+      sessionCouldNotBeVerified
+        ? "We couldn't verify your saved session. You can still try to sign in."
+        : error.message,
+      sessionCouldNotBeVerified ? "warning" : "error",
+    );
   }
 }
 
