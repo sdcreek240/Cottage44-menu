@@ -92,6 +92,7 @@
           <nav class="dashboard-nav" aria-label="Admin sections">
             <a id="nav-today-plan" href="#today-plan-view" aria-current="page">Today’s Plate / Plan Ahead</a>
             <a id="nav-plate-library" href="#plate-library-view">Plate Library / Saved Plates</a>
+            <a id="nav-menu" href="#menu-view">Menu</a>
             <a id="nav-history" href="#history-view">History</a>
           </nav>
         </header>
@@ -198,6 +199,66 @@
                 <ul id="plate-list" class="plate-list"></ul>
                 <p id="library-search-empty" class="muted" hidden>No saved plates match your search.</p>
               </details>
+            </div>
+          </section>
+        </section>
+
+        <section id="menu-view" class="dashboard-view" aria-labelledby="menu-admin-title" hidden>
+          <section class="panel dashboard-section" aria-labelledby="menu-admin-title">
+            <div class="group-heading">
+              <p class="eyebrow">Public menu</p>
+              <h2 id="menu-admin-title">Menu items</h2>
+              <p class="muted">Changes are reflected on the public menu. Deactivated items stay saved and can be restored.</p>
+            </div>
+            <div class="menu-admin-grid">
+              <section id="menu-editor-panel" class="panel menu-editor-panel" aria-labelledby="menu-editor-title" tabindex="-1">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Create or update</p>
+                    <h3 id="menu-editor-title">Add menu item</h3>
+                  </div>
+                  <button id="new-menu-item" class="button button--quiet" type="button">New item</button>
+                </div>
+                <form id="menu-form">
+                  <input id="menu-item-id" type="hidden">
+                  <label for="menu-item-name">Name</label>
+                  <input id="menu-item-name" maxlength="120" required>
+                  <label for="menu-item-description">Description</label>
+                  <textarea id="menu-item-description" maxlength="1000" rows="3"></textarea>
+                  <label for="menu-item-price">Price (ZAR)</label>
+                  <input id="menu-item-price" type="number" min="0" max="1000000" step="0.01" required>
+                  <label for="menu-item-category">Category</label>
+                  <input id="menu-item-category" maxlength="80" required>
+                  <div class="menu-order-fields">
+                    <div>
+                      <label for="menu-category-order">Category order</label>
+                      <input id="menu-category-order" type="number" min="0" max="1000" step="1" required>
+                    </div>
+                    <div>
+                      <label for="menu-item-order">Item order</label>
+                      <input id="menu-item-order" type="number" min="0" max="10000" step="1" required>
+                    </div>
+                  </div>
+                  <label class="remember-option" for="menu-item-active">
+                    <input id="menu-item-active" type="checkbox" checked>
+                    Display on the public menu
+                  </label>
+                  <div class="inline-form">
+                    <button id="save-menu-item" class="button" type="submit">Save menu item</button>
+                    <button id="cancel-menu-edit" class="button button--quiet" type="button" hidden>Cancel edit</button>
+                  </div>
+                </form>
+              </section>
+              <section class="panel menu-items-panel" aria-labelledby="menu-list-title">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Manage items</p>
+                    <h3 id="menu-list-title">Saved menu items</h3>
+                  </div>
+                </div>
+                <p id="menu-items-state" class="muted" role="status" aria-live="polite">Menu items are loading…</p>
+                <ul id="menu-items-list" class="plate-list"></ul>
+              </section>
             </div>
           </section>
         </section>

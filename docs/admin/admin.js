@@ -25,11 +25,13 @@ const dashboard = document.querySelector("#dashboard");
 const dashboardViews = {
   "today-plan-view": document.querySelector("#today-plan-view"),
   "plate-library-view": document.querySelector("#plate-library-view"),
+  "menu-view": document.querySelector("#menu-view"),
   "history-view": document.querySelector("#history-view"),
 };
 const dashboardNavigation = {
   "today-plan-view": document.querySelector("#nav-today-plan"),
   "plate-library-view": document.querySelector("#nav-plate-library"),
+  "menu-view": document.querySelector("#nav-menu"),
   "history-view": document.querySelector("#nav-history"),
 };
 const signOutButton = document.querySelector("#sign-out");
@@ -74,8 +76,25 @@ const averagePriceButton = document.querySelector("#average-price");
 const scheduleSummary = document.querySelector("#schedule-summary");
 const weeklyPlanList = document.querySelector("#weekly-plan-list");
 const clearTodayButton = document.querySelector("#clear-today");
+const menuForm = document.querySelector("#menu-form");
+const menuItemIdInput = document.querySelector("#menu-item-id");
+const menuItemNameInput = document.querySelector("#menu-item-name");
+const menuItemDescriptionInput = document.querySelector("#menu-item-description");
+const menuItemPriceInput = document.querySelector("#menu-item-price");
+const menuItemCategoryInput = document.querySelector("#menu-item-category");
+const menuCategoryOrderInput = document.querySelector("#menu-category-order");
+const menuItemOrderInput = document.querySelector("#menu-item-order");
+const menuItemActiveInput = document.querySelector("#menu-item-active");
+const menuItemsList = document.querySelector("#menu-items-list");
+const menuItemsState = document.querySelector("#menu-items-state");
+const menuEditorTitle = document.querySelector("#menu-editor-title");
+const menuEditorPanel = document.querySelector("#menu-editor-panel");
+const saveMenuItemButton = document.querySelector("#save-menu-item");
+const cancelMenuEditButton = document.querySelector("#cancel-menu-edit");
+const newMenuItemButton = document.querySelector("#new-menu-item");
 
 let plates = [];
+let menuItems = [];
 let upcomingAssignments = [];
 let historyEvents = [];
 let historyNextBefore = null;
@@ -326,6 +345,9 @@ async function showDashboard() {
   showDashboardView(window.location.hash.slice(1));
   signOutButton.hidden = false;
   await loadDashboard();
+  if (window.location.hash === "#menu-view") {
+    await loadMenuItems();
+  }
 }
 
 function formatPrice(priceCents) {
@@ -377,6 +399,228 @@ function normalizeSearch(value) {
     .toLowerCase()
     .trim();
 }
+
+function isMenuItem(value) {
+  return typeof value === "object" &&
+    value !== null &&
+    typeof value.id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id) &&
+    typeof value.name === "string" &&
+    value.name.trim().length > 0 &&
+    typeof value.description === "string" &&
+    Number.isSafeInteger(value.priceCents) &&
+    value.priceCents >= 0 &&
+    typeof value.category === "string" &&
+    value.category.trim().length > 0 &&
+    Number.isSafeInteger(value.categoryOrder) &&
+    Number.isSafeInteger(value.itemOrder) &&
+    typeof value.active === "boolean";
+}
+
+function renderMenuItems() {
+  menuItemsList.replaceChildren();
+  menuItemsState.textContent = menuItems.length
+    ? `${menuItems.length} saved menu ${menuItems.length === 1 ? "item" : "items"}.`
+    : "No menu items have been added yet.";
+  for (const menuItem of menuItems) {
+    const row = document.createElement("li");
+    row.className = "plate-item";
+    const details = document.createElement("div");
+    details.className = "plate-item__details";
+    const name = document.createElement("span");
+    name.className = "plate-item__name";
+    name.textContent = `${menuItem.name}${menuItem.active ? "" : " (Inactive)"}`;
+    const description = document.createElement("span");
+    description.className = "plate-item__description";
+    description.textContent = [
+      menuItem.category,
+      `R${menuItem.priceCents % 100 === 0
+        ? menuItem.priceCents / 100
+        : (menuItem.priceCents / 100).toFixed(2)}`,
+      menuItem.description,
+    ].filter(Boolean).join(" · ");
+    details.append(name, description);
+
+    const actions = document.createElement("div");
+    actions.className = "plate-item__actions";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "button button--quiet";
+    edit.textContent = "Edit";
+    edit.setAttribute("aria-label", `Edit ${menuItem.name}`);
+    edit.addEventListener("click", () => editMenuItem(menuItem));
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "button button--quiet";
+    toggle.textContent = menuItem.active ? "Deactivate" : "Restore";
+    toggle.setAttribute(
+      "aria-label",
+      `${menuItem.active ? "Deactivate" : "Restore"} ${menuItem.name}`,
+    );
+    toggle.addEventListener("click", () => setMenuItemActive(menuItem, !menuItem.active, toggle));
+    actions.append(edit, toggle);
+    row.append(details, actions);
+    menuItemsList.append(row);
+  }
+}
+
+async function loadMenuItems() {
+  menuItemsState.textContent = "Menu items are loading…";
+  try {
+    const result = await apiRequest("/api/admin/menu");
+    if (!Array.isArray(result.items) || !result.items.every(isMenuItem)) {
+      throw new Error("The menu catalog response was invalid.");
+    }
+    menuItems = result.items;
+    renderMenuItems();
+    return true;
+  } catch (error) {
+    menuItemsState.textContent = error.message;
+    return false;
+  }
+}
+
+function resetMenuForm() {
+  menuForm.reset();
+  menuItemIdInput.value = "";
+  menuItemNameInput.value = "";
+  menuItemDescriptionInput.value = "";
+  menuItemPriceInput.value = "";
+  menuItemCategoryInput.value = "";
+  menuCategoryOrderInput.value = "0";
+  menuItemOrderInput.value = "0";
+  menuItemActiveInput.checked = true;
+  cancelMenuEditButton.hidden = true;
+  menuEditorTitle.textContent = "Add menu item";
+  menuEditorPanel.classList.remove("menu-editor-panel--editing");
+}
+
+function editMenuItem(item) {
+  showDashboardView("menu-view");
+  menuItemIdInput.value = item.id;
+  menuItemNameInput.value = item.name;
+  menuItemDescriptionInput.value = item.description;
+  menuItemPriceInput.value = (item.priceCents / 100).toFixed(2);
+  menuItemCategoryInput.value = item.category;
+  menuCategoryOrderInput.value = String(item.categoryOrder);
+  menuItemOrderInput.value = String(item.itemOrder);
+  menuItemActiveInput.checked = item.active;
+  cancelMenuEditButton.hidden = false;
+  menuEditorTitle.textContent = `Edit ${item.name}`;
+  menuEditorPanel.classList.add("menu-editor-panel--editing");
+  menuEditorPanel.scrollIntoView({
+    behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth",
+    block: "start",
+  });
+  menuItemNameInput.focus({ preventScroll: true });
+}
+
+async function setMenuItemActive(item, active, button) {
+  if (!beginBusy(button, active ? "Restoring…" : "Deactivating…")) {
+    return;
+  }
+  try {
+    const fields = {
+      name: item.name,
+      description: item.description,
+      priceCents: item.priceCents,
+      category: item.category,
+      categoryOrder: item.categoryOrder,
+      itemOrder: item.itemOrder,
+      active,
+    };
+    await apiRequest(`/api/admin/menu/${encodeURIComponent(item.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    });
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${item.name}” ${active ? "restored to" : "removed from"} the public menu.`
+        : "The menu item was updated, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
+    );
+  } catch (error) {
+    setStatus(`The menu item could not be updated. ${error.message}`, "error");
+  } finally {
+    endBusy(button);
+  }
+}
+
+menuForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!beginBusy(saveMenuItemButton, "Saving…")) {
+    return;
+  }
+  const price = Number(menuItemPriceInput.value);
+  const fields = {
+    name: menuItemNameInput.value.trim(),
+    description: menuItemDescriptionInput.value.trim(),
+    priceCents: Math.round(price * 100),
+    category: menuItemCategoryInput.value.trim(),
+    categoryOrder: Number(menuCategoryOrderInput.value),
+    itemOrder: Number(menuItemOrderInput.value),
+    active: menuItemActiveInput.checked,
+  };
+  if (
+    !fields.name ||
+    !fields.category ||
+    !Number.isFinite(price) ||
+    price < 0 ||
+    price > 1_000_000 ||
+    !Number.isSafeInteger(fields.categoryOrder) ||
+    fields.categoryOrder < 0 ||
+    !Number.isSafeInteger(fields.itemOrder) ||
+    fields.itemOrder < 0
+  ) {
+    setStatus("Enter a valid name, price, category, and non-negative order.", "error");
+    endBusy(saveMenuItemButton);
+    return;
+  }
+  try {
+    const id = menuItemIdInput.value;
+    await apiRequest(id ? `/api/admin/menu/${encodeURIComponent(id)}` : "/api/admin/menu", {
+      method: id ? "PATCH" : "POST",
+      body: JSON.stringify(fields),
+    });
+    resetMenuForm();
+    const refreshed = await loadMenuItems();
+    setStatus(
+      refreshed
+        ? `“${fields.name}” has been ${id ? "updated" : "added"} to the menu.`
+        : "The menu item was saved, but the list could not be refreshed. Please reload.",
+      refreshed ? "success" : "warning",
+    );
+  } catch (error) {
+    setStatus(`The menu item could not be saved. ${error.message}`, "error");
+  } finally {
+    endBusy(saveMenuItemButton);
+  }
+});
+
+newMenuItemButton.addEventListener("click", () => {
+  resetMenuForm();
+  menuItemNameInput.focus();
+});
+cancelMenuEditButton.addEventListener("click", resetMenuForm);
+menuItemCategoryInput.addEventListener("change", () => {
+  const matchingItems = menuItems.filter((item) =>
+    item.category === menuItemCategoryInput.value.trim()
+  );
+  if (matchingItems.length) {
+    menuCategoryOrderInput.value = String(matchingItems[0].categoryOrder);
+    menuItemOrderInput.value = String(
+      Math.max(...matchingItems.map((item) => item.itemOrder)) + 1,
+    );
+  } else {
+    menuCategoryOrderInput.value = String(
+      Math.max(-1, ...menuItems.map((item) => item.categoryOrder)) + 1,
+    );
+    menuItemOrderInput.value = "0";
+  }
+});
 
 function matchingPlates(searchText, selectedId = "") {
   const query = normalizeSearch(searchText);
@@ -1271,7 +1515,11 @@ for (const [viewId, link] of Object.entries(dashboardNavigation)) {
 
 window.addEventListener("hashchange", () => {
   if (!dashboard.hidden) {
-    showDashboardView(window.location.hash.slice(1));
+    const viewId = window.location.hash.slice(1);
+    showDashboardView(viewId);
+    if (viewId === "menu-view") {
+      void loadMenuItems();
+    }
   }
 });
 

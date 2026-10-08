@@ -9,6 +9,89 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const html = await readFile(path.join(root, "docs/index.html"), "utf8");
 const styles = await readFile(path.join(root, "docs/styles.css"), "utf8");
 const menuScript = await readFile(path.join(root, "docs/menu.js"), "utf8");
+const menuMigration = await readFile(
+  path.join(root, "supabase/migrations/20261007170000_create_menu_items.sql"),
+  "utf8",
+);
+
+const legacyMenu = [
+  ["Toasties", [
+    ["Bacon, Egg and Cheese", "R27"],
+    ["Ham and Cheese", "R23"],
+    ["Ham, Cheese and Tomato", "R25"],
+    ["Chicken Mayo", "R25"],
+    ["Cheese and Tomato", "R20"],
+    ["Bacon and Cheese", "R25"],
+    ["Egg Mayonnaise", "R20"],
+  ]],
+  ["Healthy", [
+    ["Chicken salad", "R38"],
+    ["Bacon salad", "R38"],
+    ["Chicken wrap with salad filling", "R38"],
+    ["Tramazinni", "R48"],
+    ["Tea or coffee", "R10"],
+    ["Cuppachino", "R15"],
+  ]],
+  ["Lunch", [
+    ["Hotdog roll", "R15"],
+    ["Chip roll with white sauce", "R25"],
+    ["Russian roll with 125g chips", "R30"],
+    ["300g chips", "R20"],
+    ["Loaded fries", "R38", "Chips, cheese sauce, cheese and bacon"],
+    ["Russian and 300g chips", "R30"],
+    ["Nuggets and 300g chips", "R36"],
+    ["Skambane", "R35", "Russian, chips, cheese and ¼ bread"],
+    ["Strips and 300g chips", "R40"],
+  ]],
+  ["Burgers", [
+    ["Dagwood with 300g chips", "R50"],
+    ["Beef burger with 125g chips", "R40"],
+    ["Crumbed chicken burger with 125g chips", "R40"],
+  ]],
+  ["Singles", [
+    ["Russian", "R12"],
+    ["Vienna", "R8"],
+    ["6 Nuggets", "R16"],
+    ["3 Strips", "R25"],
+    ["Fried egg", "R5"],
+    ["Rolls", "R5"],
+    ["⅓ bread", "R8"],
+    ["⅓ bread with butter", "R10"],
+    ["Butter", "R4"],
+  ]],
+  ["Breakfast", [
+    ["All day breakfast", "R35", "2 eggs, 125g chips, bread, 2 bacon"],
+    ["Starter pack", "R30", "2 eggs, 125g chips, 2 bread, vienna"],
+    ["Special breakfast", "R50", "2 eggs, 125g chips, 2 bread, 2 bacon, russian, salad"],
+  ]],
+];
+
+const menuSeedRows = [...menuMigration.matchAll(
+  /\('([0-9a-f-]+)', '([^']+)', '([^']+)', '([^']*)', (\d+), '([^']+)', (\d+), (\d+)\)/g,
+)].map(([, id, seedKey, name, description, priceCents, category, categoryOrder, itemOrder]) => ({
+  id,
+  seedKey,
+  name,
+  description,
+  priceCents: Number(priceCents),
+  category,
+  categoryOrder: Number(categoryOrder),
+  itemOrder: Number(itemOrder),
+}));
+const apiMenu = [];
+for (const row of menuSeedRows) {
+  let category = apiMenu.find((entry) => entry.category === row.category);
+  if (!category) {
+    category = { category: row.category, items: [] };
+    apiMenu.push(category);
+  }
+  category.items.push({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    priceCents: row.priceCents,
+  });
+}
 
 class Element {
   constructor(tagName) {
@@ -43,7 +126,13 @@ class Element {
   }
 }
 
-function createPage(theme = "light", fetchImpl = async () => jsonResponse({ plate: null, nextPlate: null }), now = new Date()) {
+function createPage(
+  theme = "light",
+  fetchImpl = async (url) => url === "/api/menu"
+    ? jsonResponse({ categories: apiMenu })
+    : jsonResponse({ plate: null, nextPlate: null }),
+  now = new Date(),
+) {
   const elements = {
     "#category-nav": new Element("div"),
     "#menu-sections": new Element("div"),
@@ -164,8 +253,37 @@ function runInitialThemeScript({ storedTheme = null, prefersDark = false } = {})
   return document.documentElement.dataset.theme;
 }
 
-test("renders every menu category, item, price, and optional description", () => {
+test("migration seed exactly preserves the complete legacy menu content and order", () => {
+  assert.equal(menuSeedRows.length, 37);
+  assert.deepEqual(
+    menuSeedRows.map(({ category, name, description, priceCents, categoryOrder, itemOrder }) => [
+      category,
+      name,
+      `R${priceCents / 100}`,
+      ...(description ? [description] : []),
+      categoryOrder,
+      itemOrder,
+    ]),
+    legacyMenu.flatMap(([category, items], categoryOrder) =>
+      items.map(([name, price, description], itemOrder) => [
+        category,
+        name,
+        price,
+        ...(description ? [description] : []),
+        categoryOrder,
+        itemOrder,
+      ])
+    ),
+  );
+  assert.match(menuMigration, /on conflict \(seed_key\) do nothing/);
+  assert.match(menuMigration, /create policy menu_items_public_read[\s\S]*?using \(active\)/);
+  assert.match(menuMigration, /menu_items_owner_(?:read|insert|update|delete)/);
+  assert.doesNotMatch(menuScript, /const menu\s*=/);
+});
+
+test("loads and renders every database-backed menu category, item, price, and description", async () => {
   const { elements } = createPage();
+  await flushPromises();
   const categories = elements["#menu-sections"].children;
   const navigation = elements["#category-nav"].children;
 
@@ -266,8 +384,10 @@ test("loads and renders today's plate accessibly using the same-origin API", asy
     resolveResponse = resolve;
   });
   const { elements } = createPage("light", (url, options) => {
-    requestedUrl = url;
-    requestOptions = options;
+    if (url === "/api/plates/today") {
+      requestedUrl = url;
+      requestOptions = options;
+    }
     return responsePromise;
   });
 

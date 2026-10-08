@@ -6,18 +6,20 @@ Cloudflare Pages Functions API provides the backend foundation.
 
 ## Local preview
 
-Open `docs/index.html` in a browser, or serve the `docs/` directory with any
-static file server.
+The menu loads from the Pages API, so a static file preview alone will not
+include its database-backed items. For a complete local preview, follow the
+Pages setup below and run `npm run dev`.
 
 ## Backend foundation
 
 Cloudflare Pages Functions provide the API and owner administration. The
-public menu reads only today's plate; `/admin/` supports owner sign-in, today's
-plate, upcoming planning, a reusable plate library, permanent assignment
-history, and image uploads. Admin dates are presented as DD/MM/YYYY while the
-date picker and API retain their ISO value; the native picker may follow the
-device's locale. Plate photos can be chosen from the photo library or taken
-directly with the device camera, using the same resize/upload flow. Plan Ahead
+public menu and today's plate are database-backed; `/admin/` supports owner
+sign-in, today's plate, upcoming planning, a reusable plate library, menu item
+management, permanent assignment history, and image uploads. Admin dates are
+presented as DD/MM/YYYY while the date picker and API retain their ISO value;
+the native picker may follow the device's locale. Plate photos can be chosen
+from the photo library or taken directly with the device camera, using the
+same resize/upload flow. Plan Ahead
 shows the next five future weekdays alongside today's separate assignment; the
 plate editor can use a rounded average of saved prices, and today's assignment
 can be cleared from the server. History is ordered by service date, distinguishes
@@ -137,8 +139,11 @@ Cloudflare Pages is the production host. The repository does not change DNS.
 See [the architecture and setup notes](docs/architecture.md) for the release
 process and required account configuration.
 
-Menu items and prices are maintained in `docs/menu.js`. The light/dark theme
-preference is stored in the browser.
+Menu items and prices are managed from the owner dashboard's **Menu** section.
+Their canonical records, categories, and display order live in Supabase; the
+initial migration preserves the menu previously published by `docs/menu.js`.
+The browser script now renders menu data returned by `/api/menu`. The light/dark
+theme preference is stored in the browser.
 
 The supplied source menu PDF is retained separately at `assets/original-menu.pdf`;
 it is not part of the published site.
