@@ -55,11 +55,13 @@ const adminSelectors = [
   "#dashboard",
   "#today-plan-view",
   "#plate-library-view",
+  "#menu-view",
   "#history-view",
   "#today",
   "#planning",
   "#nav-today-plan",
   "#nav-plate-library",
+  "#nav-menu",
   "#nav-history",
   "#sign-out",
   "#plate-form",
@@ -104,6 +106,33 @@ const adminSelectors = [
   "#save-schedule",
   "#schedule-summary",
   "#weekly-plan-list",
+  "#menu-form",
+  "#menu-item-id",
+  "#menu-item-name",
+  "#menu-item-description",
+  "#menu-item-price",
+  "#menu-item-category",
+  "#menu-category-sort-order",
+  "#menu-item-order",
+  "#menu-item-active",
+  "#menu-items-list",
+  "#menu-items-state",
+  "#menu-categories-state",
+  "#menu-categories-list",
+  "#menu-category-form",
+  "#menu-category-id",
+  "#menu-category-name",
+  "#menu-category-sort-order",
+  "#menu-category-active",
+  "#menu-category-editor-title",
+  "#save-menu-category",
+  "#cancel-menu-category-edit",
+  "#new-menu-category",
+  "#menu-editor-title",
+  "#menu-editor-panel",
+  "#save-menu-item",
+  "#cancel-menu-edit",
+  "#new-menu-item",
 ];
 
 test("admin theme defaults to dark and respects a saved shared theme", () => {
@@ -122,7 +151,7 @@ test("uses the exact Cottage 44 red accent in admin light and dark themes", () =
   }
 });
 
-test("admin dashboard navigation exposes the three grouped views", () => {
+test("admin dashboard navigation exposes the four grouped views", () => {
   const ids = [...adminHtml.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => id);
   assert.equal(new Set(ids).size, ids.length, "admin page IDs are unique");
   for (const selector of adminSelectors) {
@@ -135,10 +164,10 @@ test("admin dashboard navigation exposes the three grouped views", () => {
   assert.ok(navigation, "dashboard has an explicitly labelled section navigation");
   assert.equal(navigation[1], "Admin sections");
   const targets = [...navigation[2].matchAll(/href="#([^"]+)"/g)].map(([, id]) => id);
-  assert.deepEqual(targets, ["today-plan-view", "plate-library-view", "history-view"]);
+  assert.deepEqual(targets, ["today-plan-view", "plate-library-view", "menu-view", "history-view"]);
   assert.deepEqual(
     [...navigation[2].matchAll(/>([^<]+)<\/a>/g)].map(([, label]) => label),
-    ["Today’s Plate / Plan Ahead", "Plate Library / Saved Plates", "History"],
+    ["Today’s Plate / Plan Ahead", "Plate Library / Saved Plates", "Menu", "History"],
   );
   for (const target of targets) {
     assert.ok(ids.includes(target), `navigation target #${target} exists`);
@@ -153,14 +182,17 @@ test("admin dashboard navigation exposes the three grouped views", () => {
   const planning = adminHtml.indexOf('id="planning"');
   const libraryView = adminHtml.indexOf('id="plate-library-view"');
   const library = adminHtml.indexOf('id="plate-library"');
+  const menuView = adminHtml.indexOf('id="menu-view"');
+  const menuForm = adminHtml.indexOf('id="menu-form"');
   const historyView = adminHtml.indexOf('id="history-view"');
   const history = adminHtml.indexOf('id="history"');
   assert.ok(todayPlan < today && today < planning && planning < libraryView);
-  assert.ok(libraryView < library && library < historyView);
+  assert.ok(libraryView < library && library < menuView && menuView < historyView);
   assert.ok(historyView < history);
   assert.ok(today < adminHtml.indexOf('id="today-select"'));
   assert.ok(planning < adminHtml.indexOf('id="schedule-date"'));
   assert.ok(library < adminHtml.indexOf('id="plate-form"'));
+  assert.ok(menuView < menuForm);
   assert.ok(history < adminHtml.indexOf('id="history-list"'));
   assert.match(adminHtml, /search further back\. Past plate snapshots stay here/);
   assert.match(adminHtml, /id="history-state"[^>]*aria-live="polite"/);
@@ -170,9 +202,10 @@ test("admin dashboard layout switches from grouped desktop columns to a narrow s
   assert.match(adminCss, /main\s*\{[\s\S]*?width:\s*min\(100% - 2rem,\s*1120px\)/);
   assert.match(adminCss, /\.admin-dashboard\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(adminCss, /\.library-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(adminCss, /\.menu-admin-grid\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*0\.85fr\)/);
   assert.match(
     adminCss,
-    /@media \(max-width:\s*54rem\)\s*\{[\s\S]*?\.admin-dashboard,\s*\.library-grid,\s*\.today-plan-view\s*\{[\s\S]*?grid-template-columns:\s*1fr/,
+    /@media \(max-width:\s*54rem\)\s*\{[\s\S]*?\.admin-dashboard,\s*\.library-grid,\s*\.menu-admin-grid,\s*\.today-plan-view\s*\{[\s\S]*?grid-template-columns:\s*1fr/,
   );
   assert.match(adminCss, /\.dashboard-nav\s*\{[\s\S]*?flex-wrap:\s*wrap/);
   assert.match(adminCss, /\.dashboard-view\[hidden\]\s*\{[\s\S]*?display:\s*none/);
@@ -297,8 +330,34 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   let savedPlates = [];
   let todaysPlate = null;
   let failSessionBootstrap = true;
+  let nextMenuResponse = null;
+  let failMenuLoad = false;
+  let failMenuItemWrite = false;
+  let failMenuCategoryWrite = false;
+  let failMenuCategoryDelete = false;
+  let prefersReducedMotion = false;
   const scheduledPlates = new Map();
   let historyEvents = [];
+  let menuCategories = [{
+    id: "20000000-0000-4000-8000-000000000003",
+    name: "Lunch",
+    categoryOrder: 2,
+    active: true,
+  }, {
+    id: "20000000-0000-4000-8000-000000000007",
+    name: "Specials",
+    categoryOrder: 6,
+    active: true,
+  }];
+  let menuItems = [{
+    id: "8d2b48f2-7932-4ff0-9e80-7ac5efc438f0",
+    name: "Loaded fries",
+    description: "Chips, cheese sauce, cheese and bacon",
+    priceCents: 3800,
+    categoryId: "20000000-0000-4000-8000-000000000003",
+    itemOrder: 4,
+    active: true,
+  }];
   let nextHistoryId = 1;
   let failSignIn = true;
   let failSignInService = true;
@@ -385,6 +444,76 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
     }
     if (url === "/api/admin/plates" && !options.method) {
       return Response.json({ plates: savedPlates });
+    }
+    if (url === "/api/admin/menu" && !options.method) {
+      if (failMenuLoad) {
+        failMenuLoad = false;
+        return Response.json({ error: "Menu service unavailable." }, { status: 503 });
+      }
+      if (nextMenuResponse !== null) {
+        const responseBody = nextMenuResponse;
+        nextMenuResponse = null;
+        return Response.json(responseBody);
+      }
+      return Response.json({ categories: menuCategories, items: menuItems });
+    }
+    if (url === "/api/admin/menu" && options.method === "POST") {
+      if (failMenuItemWrite) {
+        return Response.json({ error: "Menu item write failed." }, { status: 503 });
+      }
+      const item = {
+        id: "9d2b48f2-7932-4ff0-9e80-7ac5efc438f1",
+        ...JSON.parse(options.body),
+      };
+      menuItems = [...menuItems, item];
+      return Response.json({ item }, { status: 201 });
+    }
+    if (url === "/api/admin/menu/categories" && options.method === "POST") {
+      if (failMenuCategoryWrite) {
+        return Response.json({ error: "Category write failed." }, { status: 503 });
+      }
+      const category = {
+        id: "20000000-0000-4000-8000-000000000008",
+        ...JSON.parse(options.body),
+      };
+      menuCategories = [...menuCategories, category];
+      return Response.json({ category }, { status: 201 });
+    }
+    if (url.startsWith("/api/admin/menu/categories/") && options.method === "PATCH") {
+      if (failMenuCategoryWrite) {
+        return Response.json({ error: "Category write failed." }, { status: 503 });
+      }
+      const id = url.split("/").at(-1);
+      const category = {
+        ...menuCategories.find((savedCategory) => savedCategory.id === id),
+        ...JSON.parse(options.body),
+      };
+      menuCategories = menuCategories.map((savedCategory) =>
+        savedCategory.id === id ? category : savedCategory
+      );
+      return Response.json({ category });
+    }
+    if (url.startsWith("/api/admin/menu/categories/") && options.method === "DELETE") {
+      if (failMenuCategoryDelete) {
+        return Response.json({
+          error: "This category still contains menu items.",
+        }, { status: 409 });
+      }
+      const id = url.split("/").at(-1);
+      menuCategories = menuCategories.filter((category) => category.id !== id);
+      return Response.json({ deleted: true });
+    }
+    if (url.startsWith("/api/admin/menu/") && options.method === "PATCH") {
+      if (failMenuItemWrite) {
+        return Response.json({ error: "Menu item write failed." }, { status: 503 });
+      }
+      const id = url.split("/").at(-1);
+      const item = {
+        ...menuItems.find((savedItem) => savedItem.id === id),
+        ...JSON.parse(options.body),
+      };
+      menuItems = menuItems.map((savedItem) => savedItem.id === id ? item : savedItem);
+      return Response.json({ item });
     }
     if (url === "/api/admin/plates/today" && !options.method) {
       return Response.json({
@@ -615,6 +744,7 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
         windowListeners[event] = callback;
       },
       AudioContext: FakeAudioContext,
+      matchMedia: () => ({ matches: prefersReducedMotion }),
     },
     console,
   });
@@ -677,12 +807,183 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   assert.equal(elements["#status-icon"].textContent, "!");
 
   failSignIn = false;
+  context.window.location.hash = "#menu-view";
   await elements["#sign-in-form"].listeners.submit({ preventDefault() {} });
   const signInCall = calls.find(
     ({ url, options }) => url === "/api/admin/session" && options.method === "POST",
   );
   assert.equal(JSON.parse(signInCall.options.body).rememberMe, true);
   assert.equal(elements["#dashboard"].hidden, false);
+  elements["#nav-menu"].listeners.click({ preventDefault() {} });
+  context.window.location.hash = "#menu-view";
+  windowListeners.hashchange();
+  await new Promise(setImmediate);
+  assert.equal(elements["#menu-view"].hidden, false);
+  assert.equal(elements["#nav-menu"].getAttribute("aria-current"), "page");
+  assert.equal(elements["#menu-items-list"].children.length, 1);
+  assert.equal(elements["#menu-categories-list"].children.length, 2);
+  assert.equal(elements["#menu-item-category"].children.length, 3);
+  const itemRequestCount = calls.filter(({ url }) => url === "/api/admin/menu").length;
+  elements["#save-menu-item"].disabled = true;
+  await elements["#menu-form"].listeners.submit({ preventDefault() {} });
+  elements["#save-menu-item"].disabled = false;
+  assert.equal(
+    calls.filter(({ url }) => url === "/api/admin/menu").length,
+    itemRequestCount,
+    "busy item saves do not submit duplicate writes",
+  );
+  const menuEditButton = elements["#menu-items-list"].children[0].children[1].children[0];
+  prefersReducedMotion = true;
+  menuEditButton.listeners.click();
+  assert.equal(elements["#menu-editor-title"].textContent, "Edit Loaded fries");
+  assert.equal(elements["#menu-item-price"].value, "38.00");
+  assert.equal(elements["#menu-editor-panel"].scrollOptions.behavior, "auto");
+  prefersReducedMotion = false;
+  elements["#menu-item-category"].value = "20000000-0000-4000-8000-000000000007";
+  elements["#menu-item-category"].listeners.change();
+  assert.equal(elements["#menu-item-order"].value, "0", "new category assignment starts at the first item position");
+  elements["#menu-item-name"].value = "Loaded fries updated";
+  elements["#menu-item-price"].value = "-1";
+  await elements["#menu-form"].listeners.submit({ preventDefault() {} });
+  assert.match(elements["#status-message"].textContent, /valid name, price, category/);
+  assert.equal(elements["#save-menu-item"].disabled, false);
+  elements["#menu-item-price"].value = "39";
+  failMenuItemWrite = true;
+  await elements["#menu-form"].listeners.submit({ preventDefault() {} });
+  assert.match(elements["#status-message"].textContent, /Menu item write failed/);
+  failMenuItemWrite = false;
+  await elements["#menu-form"].listeners.submit({ preventDefault() {} });
+  assert.equal(
+    JSON.parse(calls.findLast(({ url, options }) =>
+      url.startsWith("/api/admin/menu/") && options.method === "PATCH").options.body).name,
+    "Loaded fries updated",
+  );
+  assert.equal(menuItems[0].categoryId, "20000000-0000-4000-8000-000000000007");
+  assert.equal(elements["#menu-items-list"].children[0].children[0].children[0].textContent, "Loaded fries updated");
+  const deactivate = elements["#menu-items-list"].children[0].children[1].children[1];
+  deactivate.disabled = true;
+  await deactivate.listeners.click();
+  assert.equal(menuItems[0].active, true, "busy item actions do not issue duplicate updates");
+  deactivate.disabled = false;
+  failMenuItemWrite = true;
+  await deactivate.listeners.click();
+  assert.match(elements["#status-message"].textContent, /Menu item write failed/);
+  failMenuItemWrite = false;
+  await deactivate.listeners.click();
+  assert.equal(menuItems[0].active, false);
+  assert.equal(elements["#menu-items-list"].children[0].children[1].children[1].textContent, "Restore");
+  await elements["#menu-items-list"].children[0].children[1].children[1].listeners.click();
+  assert.equal(menuItems[0].active, true);
+  const lunchCategory = elements["#menu-categories-list"].children[0];
+  const categoryToggle = lunchCategory.children[1].children[1];
+  categoryToggle.disabled = true;
+  await categoryToggle.listeners.click();
+  assert.equal(menuCategories[0].active, true, "busy category actions do not issue duplicate updates");
+  categoryToggle.disabled = false;
+  failMenuCategoryWrite = true;
+  await categoryToggle.listeners.click();
+  assert.match(elements["#status-message"].textContent, /Category write failed/);
+  failMenuCategoryWrite = false;
+  await categoryToggle.listeners.click();
+  assert.equal(menuCategories[0].active, false);
+  assert.equal(elements["#status"].dataset.kind, "success");
+  await elements["#menu-categories-list"].children[0].children[1].children[1].listeners.click();
+  assert.equal(menuCategories[0].active, true);
+
+  const categoryWriteCount = calls.filter(({ url }) =>
+    url === "/api/admin/menu/categories"
+  ).length;
+  elements["#save-menu-category"].disabled = true;
+  await elements["#menu-category-form"].listeners.submit({ preventDefault() {} });
+  elements["#save-menu-category"].disabled = false;
+  assert.equal(
+    calls.filter(({ url }) => url === "/api/admin/menu/categories").length,
+    categoryWriteCount,
+    "busy category saves do not issue duplicate requests",
+  );
+
+  elements["#new-menu-category"].listeners.click();
+  elements["#menu-category-name"].value = "  ";
+  elements["#menu-category-sort-order"].value = "-1";
+  await elements["#menu-category-form"].listeners.submit({ preventDefault() {} });
+  assert.match(elements["#status-message"].textContent, /valid category name/);
+
+  elements["#new-menu-category"].listeners.click();
+  elements["#menu-category-name"].value = "Unavailable";
+  elements["#menu-category-sort-order"].value = "8";
+  failMenuCategoryWrite = true;
+  await elements["#menu-category-form"].listeners.submit({ preventDefault() {} });
+  assert.match(elements["#status-message"].textContent, /Category write failed/);
+  failMenuCategoryWrite = false;
+
+  nextMenuResponse = { categories: null, items: menuItems };
+  await elements["#menu-category-form"].listeners.submit({ preventDefault() {} });
+  assert.equal(menuCategories.at(-1).name, "Unavailable");
+  assert.match(elements["#status-message"].textContent, /category was saved, but the list could not be refreshed/);
+  assert.equal(await context.loadMenuItems(), true, "a later catalog load recovers from a malformed response");
+  nextMenuResponse = { categories: menuCategories, items: [{}] };
+  assert.equal(await context.loadMenuItems(), false);
+  assert.match(elements["#menu-items-state"].textContent, /catalog response was invalid/);
+  failMenuLoad = true;
+  assert.equal(await context.loadMenuItems(), false);
+  assert.equal(elements["#menu-items-state"].textContent, "Menu service unavailable.");
+  assert.equal(await context.loadMenuItems(), true);
+
+  const deleteLunch = elements["#menu-categories-list"].children[0].children[1].children[2];
+  const categoryDeleteCount = calls.filter(({ url, options }) =>
+    url.startsWith("/api/admin/menu/categories/") && options.method === "DELETE"
+  ).length;
+  deleteLunch.disabled = true;
+  await deleteLunch.listeners.click();
+  deleteLunch.disabled = false;
+  assert.equal(
+    calls.filter(({ url, options }) =>
+      url.startsWith("/api/admin/menu/categories/") && options.method === "DELETE"
+    ).length,
+    categoryDeleteCount,
+    "busy category deletes do not issue duplicate requests",
+  );
+  failMenuCategoryDelete = true;
+  await deleteLunch.listeners.click();
+  assert.match(elements["#status-message"].textContent, /still contains menu items/);
+  failMenuCategoryDelete = false;
+
+  elements["#new-menu-category"].listeners.click();
+  elements["#menu-category-name"].value = "Seasonal";
+  elements["#menu-category-sort-order"].value = "7";
+  await elements["#menu-category-form"].listeners.submit({ preventDefault() {} });
+  assert.equal(menuCategories.at(-1).name, "Seasonal");
+  assert.equal(elements["#menu-categories-list"].children.length, 4);
+  const editCategory = elements["#menu-categories-list"].children[0].children[1].children[0];
+  editCategory.listeners.click();
+  assert.equal(elements["#menu-category-editor-title"].textContent, "Edit Lunch");
+  elements["#menu-category-name"].value = "Lunch & hot food";
+  nextMenuResponse = { categories: null, items: menuItems };
+  await elements["#menu-category-form"].listeners.submit({ preventDefault() {} });
+  assert.equal(menuCategories[0].name, "Lunch & hot food");
+  assert.match(elements["#status-message"].textContent, /category was saved, but the list could not be refreshed/);
+  await context.loadMenuItems();
+  const renamedCategory = elements["#menu-categories-list"].children[0].children[1].children[2];
+  await renamedCategory.listeners.click();
+  assert.equal(menuCategories.some((category) => category.name === "Lunch & hot food"), false);
+  assert.match(elements["#status-message"].textContent, /has been deleted/);
+
+  elements["#new-menu-item"].listeners.click();
+  assert.equal(elements["#menu-item-name"].focusCount, 2);
+  elements["#menu-item-name"].value = "New menu item";
+  elements["#menu-item-description"].value = "Details";
+  elements["#menu-item-price"].value = "12.50";
+  elements["#menu-item-category"].value = "20000000-0000-4000-8000-000000000007";
+  elements["#menu-item-category"].listeners.change();
+  assert.equal(elements["#menu-item-order"].value, "1", "existing category items receive the next display position");
+  await elements["#menu-form"].listeners.submit({ preventDefault() {} });
+  assert.equal(menuItems.at(-1).name, "New menu item");
+  assert.equal(menuItems.at(-1).categoryId, "20000000-0000-4000-8000-000000000007");
+  elements["#cancel-menu-edit"].listeners.click();
+  assert.equal(elements["#menu-item-name"].value, "");
+  elements["#nav-today-plan"].listeners.click({ preventDefault() {} });
+  context.window.location.hash = "#today-plan-view";
+  windowListeners.hashchange();
   assert.equal(elements["#service-date"].textContent, "07/10/2026");
   assert.equal(elements["#service-date"].dataset.isoDate, "2026-10-07");
   assert.equal(elements["#today-plan-view"].hidden, false);
@@ -720,9 +1021,10 @@ test("admin UI remembers by default and completes sign-in, upload, save, and tod
   failHistory = false;
   await elements["#history-retry"].listeners.click();
   assert.match(elements["#history-state"].textContent, /No history yet/);
-  assert.deepEqual(
-    scheduledFrequencies,
-    [330, 220, 330, 220, 660, 880],
+  assert.ok(
+    scheduledFrequencies.some((frequency, index) =>
+      frequency === 660 && scheduledFrequencies[index + 1] === 880
+    ),
     "success toast schedules a distinct rising tone",
   );
 

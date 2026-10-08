@@ -285,6 +285,46 @@ h3 {
   gap: 1.1rem;
 }
 
+.menu-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 1rem;
+}
+
+.menu-categories-panel {
+  margin: 1rem 0;
+  padding: clamp(1rem, 3vw, 1.4rem);
+}
+
+.menu-category-form {
+  display: grid;
+  max-width: 38rem;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.menu-editor-panel,
+.menu-items-panel {
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 1.4rem);
+}
+
+.menu-editor-panel {
+  scroll-margin-top: 1rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.menu-editor-panel--editing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.menu-order-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
 .eyebrow {
   margin: 0 0 0.35rem;
   color: var(--muted);
@@ -535,6 +575,7 @@ a:focus-visible {
 @media (max-width: 54rem) {
   .admin-dashboard,
   .library-grid,
+  .menu-admin-grid,
   .today-plan-view {
     grid-template-columns: 1fr;
   }
