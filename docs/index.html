@@ -104,22 +104,50 @@
           <p class="plate-day__status" role="status">Loading today's plate…</p>
         </div>
       </section>
-      <section class="plate-day plate-day--next" aria-labelledby="next-plate-title">
+
+      <section class="plate-day plate-day--next" id="upcoming-plates-section" aria-labelledby="next-plate-title">
         <div class="plate-day__intro">
           <p class="plate-day__eyebrow">Plan ahead</p>
           <h2 id="next-plate-title">Tomorrow's Plate</h2>
-          <p class="plate-day__notice">Orders for tomorrow can be placed through the canteen until 15:00 today.</p>
+          <p class="plate-day__notice" id="upcoming-notice">Orders for tomorrow can be placed through the canteen until 15:00 today.</p>
           <p class="plate-day__countdown" id="tomorrow-cutoff" role="status" aria-live="polite"></p>
         </div>
-        <div
-          class="plate-day__content"
-          id="tomorrow-plate"
-          aria-live="polite"
-          aria-atomic="true"
-          aria-busy="true"
-        >
-          <p class="plate-day__status" role="status">Loading tomorrow's plate…</p>
+        <div class="plate-rail-shell">
+          <button
+            class="plate-rail__arrow plate-rail__arrow--prev"
+            id="upcoming-prev"
+            type="button"
+            aria-label="Previous plate"
+            aria-controls="tomorrow-plate"
+            hidden
+          >&#8249;</button>
+          <div
+            class="plate-rail"
+            id="tomorrow-plate"
+            tabindex="0"
+            role="region"
+            aria-label="Upcoming plates"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <p class="plate-day__status" role="status">Loading upcoming plates…</p>
+          </div>
+          <button
+            class="plate-rail__arrow plate-rail__arrow--next"
+            id="upcoming-next"
+            type="button"
+            aria-label="Next plate"
+            aria-controls="tomorrow-plate"
+            hidden
+          >&#8250;</button>
         </div>
+        <div
+          class="plate-dots"
+          id="upcoming-dots"
+          role="tablist"
+          aria-label="Upcoming plate days"
+          hidden
+        ></div>
       </section>
 
       <nav class="category-nav" aria-label="Menu categories">
