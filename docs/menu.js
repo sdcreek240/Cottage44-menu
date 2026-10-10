@@ -7,6 +7,21 @@ const tomorrowPlate = document.querySelector("#tomorrow-plate");
 const tomorrowCutoff = document.querySelector("#tomorrow-cutoff");
 let tomorrowCutoffTimer = null;
 
+const MENU_CACHE_KEY = "cottage44-menu-cache";
+
+function loadCachedMenu() {
+  try {
+    const raw = sessionStorage.getItem(MENU_CACHE_KEY);
+    if (!raw) return false;
+    const categories = JSON.parse(raw);
+    if (!isMenuPayload({ categories })) return false;
+    renderMenu(categories);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isMenuPayload(value) {
   return typeof value === "object" &&
     value !== null &&
@@ -94,6 +109,8 @@ function renderMenu(categories) {
 }
 
 async function loadMenu() {
+  const hadCache = loadCachedMenu();
+
   try {
     const response = await fetch("/api/menu", {
       headers: { Accept: "application/json" },
@@ -110,7 +127,13 @@ async function loadMenu() {
       throw new Error("Invalid menu response.");
     }
     renderMenu(payload.categories);
+    try {
+      sessionStorage.setItem(MENU_CACHE_KEY, JSON.stringify(payload.categories));
+    } catch {
+      // Storage full or blocked — safe to ignore.
+    }
   } catch {
+    if (hadCache) return; // keep the cached menu rather than wiping it
     const status = document.createElement("p");
     status.className = "plate-day__status";
     status.setAttribute("role", "status");

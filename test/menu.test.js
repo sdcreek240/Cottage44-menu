@@ -184,9 +184,8 @@ function createPage(
     ? jsonResponse({ categories: apiMenu })
     : jsonResponse({ plate: null, nextPlate: null }),
   now = new Date(),
+  options = {},
 ) {
-  // The plate regions live inside .plate-day sections so the script's
-  // `todayPlate.closest(".plate-day")` lookup has a real parent to find.
   const todaySection = new Element("section");
   todaySection.className = "plate-day";
   const tomorrowSection = new Element("section");
@@ -219,19 +218,36 @@ function createPage(
   const initialStatus = new Element("p");
   initialStatus.textContent = "Loading today's plate…";
   elements["#today-plate"].append(initialStatus);
+
   const document = {
     documentElement: { dataset: { theme } },
     querySelector: (selector) => elements[selector],
     createElement: (tagName) => new Element(tagName),
   };
+
   const storedValues = new Map();
   const localStorage = {
     getItem: (key) => storedValues.get(key) ?? null,
     setItem: (key, value) => storedValues.set(key, value),
   };
+
+  const sessionValues = new Map(Object.entries(options.session ?? {}));
+  const sessionStorage = options.sessionDisabled
+    ? {
+        getItem() { throw new Error("Storage is disabled in this browser."); },
+        setItem() { throw new Error("Storage is disabled in this browser."); },
+        removeItem() { throw new Error("Storage is disabled in this browser."); },
+      }
+    : {
+        getItem: (key) => sessionValues.get(key) ?? null,
+        setItem: (key, value) => sessionValues.set(key, value),
+        removeItem: (key) => sessionValues.delete(key),
+      };
+
   const context = vm.createContext({
     document,
     localStorage,
+    sessionStorage,
     fetch: fetchImpl,
     URL,
     getComputedStyle: () => ({
@@ -263,6 +279,8 @@ function createPage(
     document,
     elements,
     localStorage,
+    sessionStorage,
+    sessionValues,
     todaySection,
     tomorrowSection,
   };
@@ -731,4 +749,187 @@ test("provides a subtle owner sign-in link in the public site footer", () => {
 test("uses the exact Cottage 44 red accent in both public light and dark themes", () => {
   assert.match(styles, /--brand-accent:\s*#C12025;/);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*?--color-accent:\s*#C12025;/);
+});
+
+const CACHE_KEY = "cottage44-menu-cache";
+
+test("renders a cached menu synchronously before the API responds", async () => {
+  let resolveResponse;
+  const pending = new Promise((resolve) => { resolveResponse = resolve; });
+
+  const { elements, sessionStorage } = createPage(
+    "light",
+    () => pending,
+    TEST_WEDNESDAY,
+    { session: { [CACHE_KEY]: JSON.stringify(apiMenu) } },
+  );
+
+  // Before flushPromises() — the fetch is still in flight, but the cached
+  // menu must already be in the DOM because loadCachedMenu runs synchronously.
+  assert.equal(
+    elements["#menu-sections"].children.length,
+    apiMenu.length,
+    "cached categories render before the fetch resolves",
+  );
+  assert.equal(
+    elements["#category-nav"].children.length,
+    apiMenu.length,
+    "cached navigation renders before the fetch resolves",
+  );
+  assert.equal(
+    elements["#menu-sections"].children[0].children[0].textContent,
+    "Toasties",
+    "first cached category heading is visible",
+  );
+  assert.equal(
+    sessionStorage.getItem(CACHE_KEY),
+    JSON.stringify(apiMenu),
+    "cache is left intact while the refresh is in flight",
+  );
+
+  resolveResponse(jsonResponse({ categories: apiMenu }));
+  await flushPromises();
+  assert.equal(elements["#menu-sections"].children.length, apiMenu.length);
+});
+
+test("writes the menu to sessionStorage after a successful load", async () => {
+  const { sessionStorage } = createPage(
+    "light",
+    async () => jsonResponse({ categories: apiMenu }),
+    TEST_WEDNESDAY,
+  );
+  await flushPromises();
+
+  const cached = sessionStorage.getItem(CACHE_KEY);
+  assert.equal(typeof cached, "string", "menu is persisted after the fetch resolves");
+  const parsed = JSON.parse(cached);
+  assert.deepEqual(
+    parsed.map((category) => category.category),
+    apiMenu.map((category) => category.category),
+    "cached payload preserves category order",
+  );
+  assert.equal(
+    parsed[0].items.length,
+    apiMenu[0].items.length,
+    "cached payload preserves item counts",
+  );
+});
+
+test("keeps the cached menu when the refresh fetch fails", async () => {
+  const { elements, sessionStorage } = createPage(
+    "light",
+    async () => { throw new Error("offline"); },
+    TEST_WEDNESDAY,
+    { session: { [CACHE_KEY]: JSON.stringify(apiMenu) } },
+  );
+  await flushPromises();
+
+  // The cached render must survive a failed refresh — no error placeholder.
+  assert.equal(elements["#menu-sections"].children.length, apiMenu.length);
+  assert.equal(
+    elements["#menu-sections"].children[0].children[0].textContent,
+    "Toasties",
+  );
+  const menuText = elements["#menu-sections"].children
+    .map((section) => section.children[0].textContent)
+    .join(" ");
+  assert.doesNotMatch(menuText, /temporarily unavailable/);
+  assert.equal(
+    sessionStorage.getItem(CACHE_KEY),
+    JSON.stringify(apiMenu),
+    "cache is not cleared by a transient failure",
+  );
+});
+
+test("shows the unavailable message when the fetch fails and there is no cache", async () => {
+  const { elements } = createPage(
+    "light",
+    async () => { throw new Error("offline"); },
+    TEST_WEDNESDAY,
+  );
+  await flushPromises();
+  assert.match(
+    elements["#menu-sections"].children[0].textContent,
+    /temporarily unavailable/,
+  );
+});
+
+test("ignores a malformed cached menu and falls back to the API", async () => {
+  const calls = [];
+  const { elements, sessionStorage } = createPage(
+    "light",
+    async (url) => {
+      calls.push(url);
+      return jsonResponse({ categories: apiMenu });
+    },
+    TEST_WEDNESDAY,
+    { session: { [CACHE_KEY]: "{not json" } },
+  );
+  await flushPromises();
+
+  assert.ok(calls.includes("/api/menu"), "API is still consulted when the cache is corrupt");
+  assert.equal(elements["#menu-sections"].children.length, apiMenu.length);
+  assert.equal(
+    sessionStorage.getItem(CACHE_KEY),
+    JSON.stringify(apiMenu),
+    "corrupt cache is replaced by the fresh payload",
+  );
+});
+
+test("ignores a cached menu whose shape fails validation", async () => {
+  const calls = [];
+  const badShape = [{ category: "", items: [] }];
+  const { elements } = createPage(
+    "light",
+    async (url) => {
+      calls.push(url);
+      return jsonResponse({ categories: apiMenu });
+    },
+    TEST_WEDNESDAY,
+    { session: { [CACHE_KEY]: JSON.stringify(badShape) } },
+  );
+  await flushPromises();
+
+  assert.ok(calls.includes("/api/menu"));
+  assert.equal(
+    elements["#menu-sections"].children.length,
+    apiMenu.length,
+    "API result replaces the invalid cache",
+  );
+  assert.equal(elements["#menu-sections"].children[0].children[0].textContent, "Toasties");
+});
+
+test("survives a disabled sessionStorage and still renders the API menu", async () => {
+  const { elements } = createPage(
+    "light",
+    async () => jsonResponse({ categories: apiMenu }),
+    TEST_WEDNESDAY,
+    { sessionDisabled: true },
+  );
+  await flushPromises();
+  assert.equal(
+    elements["#menu-sections"].children.length,
+    apiMenu.length,
+    "menu renders even when storage access throws",
+  );
+  assert.equal(elements["#menu-sections"].children[0].children[0].textContent, "Toasties");
+});
+
+test("renders the cached menu when storage works but the API never responds", async () => {
+  // The fetch hangs forever. The cached render must remain untouched.
+  const { elements } = createPage(
+    "light",
+    () => new Promise(() => {}),
+    TEST_WEDNESDAY,
+    { session: { [CACHE_KEY]: JSON.stringify(apiMenu) } },
+  );
+  await flushPromises();
+
+  assert.equal(elements["#menu-sections"].children.length, apiMenu.length);
+  assert.equal(elements["#menu-sections"].children[0].children[0].textContent, "Toasties");
+  assert.equal(elements["#category-nav"].children.length, apiMenu.length);
+  assert.equal(
+    elements["#category-nav"].children[0].textContent,
+    "Toasties",
+  );
 });
