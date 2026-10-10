@@ -84,7 +84,7 @@ test("Cloudflare fork previews deploy the application without unsafe checkout", 
   assert.match(previewWorkflow, /api\/plates\/today/);
   assert.match(
     previewWorkflow,
-    /plates_status.*!= "200"[\s\S]*?jq -e 'type == "object" and has\("plate"\) and has\("nextPlate"\)'/,
+    /plates_status.*!= "200"[\s\S]*?jq -e '[\s\S]*?has\("plate"\)[\s\S]*?has\("upcoming"\)/,
   );
   assert.match(
     previewWorkflow,
@@ -162,7 +162,7 @@ test("production smoke tests today's public plates endpoint and its nullable res
   assert.match(productionSmokeWorkflow, /if \[\[ "\$plates_status" != "200" \]\]/);
   assert.match(
     productionSmokeWorkflow,
-    /jq -e 'type == "object" and has\("plate"\) and has\("nextPlate"\)'/,
+    /jq -e '[\s\S]*?has\("plate"\)[\s\S]*?has\("upcoming"\)/,
   );
   assert.doesNotMatch(
     productionSmokeWorkflow,
