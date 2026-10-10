@@ -20,6 +20,7 @@ function isMenuPayload(value) {
       category.category.trim().length > 0 &&
       Array.isArray(category.items) &&
       category.items.every((item) =>
+        
         typeof item === "object" &&
         item !== null &&
         typeof item.id === "string" &&
@@ -144,6 +145,12 @@ function todayInSouthAfrica(date = new Date()) {
   const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
   return `${values.year}-${values.month}-${values.day}`;
 }
+
+function isWorkdayInSouthAfrica(date = new Date()) {
+  // getUTCDay(): 0 = Sunday, 1 = Monday, … 6 = Saturday
+  const day = new Date(`${todayInSouthAfrica(date)}T00:00:00.000Z`).getUTCDay();
+  return day >= 1 && day <= 5;
+}//END_isWorkdayInSouthAfrica
 
 function formatRemaining(milliseconds) {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -297,6 +304,21 @@ function renderPlate(target, plate) {
 }
 
 async function loadTodayPlate() {
+
+  const todayIsWorkday = isWorkdayInSouthAfrica();
+  const tomorrowIsWorkday = isWorkdayInSouthAfrica(
+    new Date(Date.now() + 24 * 60 * 60 * 1000),
+  );
+
+  // Hide before loading
+  todayPlate.closest(".plate-day").hidden = !todayIsWorkday;
+  tomorrowPlate.closest(".plate-day").hidden = !tomorrowIsWorkday;
+
+  if (!todayIsWorkday && !tomorrowIsWorkday) {
+    hideTomorrowCutoff();
+    return;
+  }
+
   try {
     const response = await fetch("/api/plates/today", {
       headers: { Accept: "application/json" },
@@ -318,19 +340,27 @@ async function loadTodayPlate() {
     ) {
       throw new Error("Invalid today's plate response.");
     }
+
     if (payload.plate !== null && !isValidPlate(payload.plate)) {
       throw new Error("Invalid today's plate response.");
     }
-    if (payload.plate === null) {
+
+    if (!todayIsWorkday){
+      //Load nothing
+    } else if (payload.plate === null) {
       renderPlateMessage(todayPlate, "No plate has been announced for today. Please check back later.");
     } else {
       renderPlate(todayPlate, payload.plate);
     }
+
     const tomorrow = new Date(`${todayInSouthAfrica()}T00:00:00.000Z`);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     const tomorrowDate = tomorrow.toISOString().slice(0, 10);
     const nextPlate = payload.nextPlate ?? null;
-    if (nextPlate === null) {
+
+    if (!tomorrowIsWorkday){
+      //Load nothing
+    } else if (nextPlate === null) {
       renderPlateMessage(tomorrowPlate, "Tomorrow's plate has not been announced yet.");
       hideTomorrowCutoff();
     } else if (!isValidPlate(nextPlate, tomorrowDate)) {

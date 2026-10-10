@@ -93,6 +93,20 @@ for (const row of menuSeedRows) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Pinned test dates. All at 12:00 UTC = 14:00 SAST, one hour before the 15:00
+// SAST canteen cutoff, unless a test overrides the time-of-day.
+//
+//  2026-10-07 = Wednesday  (workday today, workday tomorrow)
+//  2026-10-09 = Friday     (workday today, Saturday tomorrow)
+//  2026-10-10 = Saturday   (non-workday today, non-workday tomorrow)
+//  2026-10-11 = Sunday     (non-workday today, Monday tomorrow)
+// ---------------------------------------------------------------------------
+const TEST_WEDNESDAY = new Date("2026-10-07T12:00:00.000Z");
+const TEST_FRIDAY    = new Date("2026-10-09T12:00:00.000Z");
+const TEST_SATURDAY  = new Date("2026-10-10T12:00:00.000Z");
+const TEST_SUNDAY    = new Date("2026-10-11T12:00:00.000Z");
+
 class Element {
   constructor(tagName) {
     this.tagName = tagName;
@@ -100,13 +114,27 @@ class Element {
     this.attributes = {};
     this.dataset = {};
     this.textContent = "";
+    this.hidden = false;
+    this.parent = null;
+    this.className = "";
+    this.id = "";
   }
 
   append(...elements) {
+    for (const el of elements) {
+      if (el && typeof el === "object") {
+        el.parent = this;
+      }
+    }
     this.children.push(...elements);
   }
 
   replaceChildren(...elements) {
+    for (const el of elements) {
+      if (el && typeof el === "object") {
+        el.parent = this;
+      }
+    }
     this.children = elements;
   }
 
@@ -124,6 +152,30 @@ class Element {
     this.listeners[event] = callback;
     this.listenerOptions[event] = options;
   }
+
+  closest(selector) {
+    let node = this;
+    while (node) {
+      if (matchesSelector(node, selector)) {
+        return node;
+      }
+      node = node.parent;
+    }
+    return null;
+  }
+}
+
+function matchesSelector(element, selector) {
+  if (selector.startsWith(".")) {
+    return String(element.className || "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .includes(selector.slice(1));
+  }
+  if (selector.startsWith("#")) {
+    return element.id === selector.slice(1);
+  }
+  return element.tagName === selector;
 }
 
 function createPage(
@@ -133,12 +185,31 @@ function createPage(
     : jsonResponse({ plate: null, nextPlate: null }),
   now = new Date(),
 ) {
+  // The plate regions live inside .plate-day sections so the script's
+  // `todayPlate.closest(".plate-day")` lookup has a real parent to find.
+  const todaySection = new Element("section");
+  todaySection.className = "plate-day";
+  const tomorrowSection = new Element("section");
+  tomorrowSection.className = "plate-day plate-day--next";
+
+  const todayPlate = new Element("div");
+  todayPlate.id = "today-plate";
+  const tomorrowPlate = new Element("div");
+  tomorrowPlate.id = "tomorrow-plate";
+  const tomorrowCutoff = new Element("p");
+  tomorrowCutoff.id = "tomorrow-cutoff";
+
+  todaySection.append(todayPlate);
+  tomorrowSection.append(tomorrowPlate, tomorrowCutoff);
+
   const elements = {
     "#category-nav": new Element("div"),
     "#menu-sections": new Element("div"),
-    "#today-plate": new Element("div"),
-    "#tomorrow-plate": new Element("div"),
-    "#tomorrow-cutoff": new Element("p"),
+    "#today-plate": todayPlate,
+    "#tomorrow-plate": tomorrowPlate,
+    "#tomorrow-cutoff": tomorrowCutoff,
+    "#today-plate-section": todaySection,
+    "#tomorrow-plate-section": tomorrowSection,
     ".theme-toggle": new Element("button"),
     ".theme-toggle__label": new Element("span"),
     'meta[name="theme-color"]': { content: "" },
@@ -188,7 +259,13 @@ function createPage(
   });
 
   vm.runInContext(menuScript, context, { filename: "docs/menu.js" });
-  return { document, elements, localStorage };
+  return {
+    document,
+    elements,
+    localStorage,
+    todaySection,
+    tomorrowSection,
+  };
 }
 
 function jsonResponse(body, { status = 200, contentType = "application/json" } = {}) {
@@ -200,13 +277,15 @@ function jsonResponse(body, { status = 200, contentType = "application/json" } =
   };
 }
 
-function currentServiceDate() {
+// Defaults to the pinned Wednesday so a "today"-based assertion cannot drift
+// with the wall clock (which would break the suite on real weekends).
+function currentServiceDate(date = TEST_WEDNESDAY) {
   const parts = new Intl.DateTimeFormat("en-ZA", {
     timeZone: "Africa/Johannesburg",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(date);
   const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
   return `${values.year}-${values.month}-${values.day}`;
 }
@@ -389,7 +468,7 @@ test("loads and renders today's plate accessibly using the same-origin API", asy
       requestOptions = options;
     }
     return responsePromise;
-  });
+  }, TEST_WEDNESDAY);
 
   assert.equal(elements["#today-plate"].attributes["aria-busy"], "true");
   assert.equal(elements["#today-plate"].children[0].textContent, "Loading today's plate…");
@@ -419,7 +498,7 @@ test("loads and renders today's plate accessibly using the same-origin API", asy
 });
 
 test("renders the empty state and optional-photo fallback without errors", async () => {
-  const empty = createPage();
+  const empty = createPage("light", undefined, TEST_WEDNESDAY);
   await flushPromises();
   assert.match(empty.elements["#today-plate"].children[0].textContent, /No plate has been announced/);
   assert.equal(empty.elements["#today-plate"].attributes["aria-busy"], "false");
@@ -427,7 +506,7 @@ test("renders the empty state and optional-photo fallback without errors", async
   const noPhoto = createPage("light", async () => jsonResponse({
     plate: validPlate({ imageUrl: null }),
     nextPlate: null,
-  }));
+  }), TEST_WEDNESDAY);
   await flushPromises();
   const fallback = findElement(
     noPhoto.elements["#today-plate"],
@@ -491,6 +570,7 @@ test("tomorrow cutoff countdown handles before, exact, and after 15:00 in Johann
 test("uses a text fallback when the plate image fails to load", async () => {
   const { elements } = createPage("light", async () =>
     jsonResponse({ plate: validPlate(), nextPlate: null }),
+    TEST_WEDNESDAY,
   );
   await flushPromises();
   const image = findElement(elements["#today-plate"], (element) => element.tagName === "img");
@@ -527,13 +607,108 @@ test("shows only a safe unavailable state for failed or stale API responses", as
   ];
 
   for (const [label, fetchImpl] of cases) {
-    const { elements } = createPage("light", fetchImpl);
+    const { elements } = createPage("light", fetchImpl, TEST_WEDNESDAY);
     await flushPromises();
     const content = elements["#today-plate"];
     assert.match(content.children[0].textContent, /temporarily unavailable/, label);
     assert.doesNotMatch(content.children[0].textContent, /private|secret|parser|network detail/, label);
     assert.equal(content.attributes["aria-busy"], "false", label);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Workday gating — covers the isWorkdayInSouthAfrica() function and every
+// branch added to loadTodayPlate().
+// ---------------------------------------------------------------------------
+
+test("Saturday: skips the plates API entirely and hides both sections", async () => {
+  const calls = [];
+  const { elements, todaySection, tomorrowSection } = createPage("light", async (url) => {
+    calls.push(url);
+    if (url === "/api/menu") {
+      return jsonResponse({ categories: apiMenu });
+    }
+    return jsonResponse({ plate: null, nextPlate: null });
+  }, TEST_SATURDAY);
+  await flushPromises();
+
+  // The menu is still fetched — only the plates endpoint is skipped.
+  assert.ok(calls.includes("/api/menu"), "menu API is still called on Saturday");
+  assert.ok(!calls.includes("/api/plates/today"), "plates API is skipped on Saturday");
+
+  assert.equal(todaySection.hidden, true);
+  assert.equal(tomorrowSection.hidden, true);
+
+  // Neither region received a plate or a "no plate" message — they keep the
+  // initial loading placeholder untouched.
+  assert.equal(findElement(elements["#today-plate"], (el) => el.tagName === "h3"), undefined);
+  assert.equal(findElement(elements["#tomorrow-plate"], (el) => el.tagName === "h3"), undefined);
+  assert.equal(elements["#tomorrow-cutoff"].textContent, "");
+});
+
+test("Sunday: hides today, shows tomorrow, and renders only tomorrow's plate", async () => {
+  const mondayDate = "2026-10-12";
+  const calls = [];
+  const { elements, todaySection, tomorrowSection } = createPage("light", async (url) => {
+    calls.push(url);
+    if (url === "/api/menu") {
+      return jsonResponse({ categories: apiMenu });
+    }
+    return jsonResponse({
+      plate: null,
+      nextPlate: validPlate({ serviceDate: mondayDate, name: "Monday stew" }),
+    });
+  }, TEST_SUNDAY);
+  await flushPromises();
+
+  assert.ok(calls.includes("/api/plates/today"), "plates API is called on Sunday");
+
+  assert.equal(todaySection.hidden, true, "today's section is hidden on Sunday");
+  assert.equal(tomorrowSection.hidden, false, "tomorrow's section is visible on Sunday");
+
+  // Today's region was left alone — no plate, no "No plate has been announced".
+  assert.equal(findElement(elements["#today-plate"], (el) => el.tagName === "h3"), undefined);
+  assert.doesNotMatch(elements["#today-plate"].children[0].textContent, /No plate/);
+
+  // Tomorrow's plate rendered normally.
+  const tomorrowHeading = findElement(elements["#tomorrow-plate"], (el) => el.tagName === "h3");
+  assert.equal(tomorrowHeading.textContent, "Monday stew");
+  assert.equal(elements["#tomorrow-plate"].attributes["aria-busy"], "false");
+
+  // Countdown is running because tomorrow is a workday.
+  assert.match(elements["#tomorrow-cutoff"].textContent, /Time remaining before/);
+});
+
+test("Friday: renders today, hides tomorrow, and starts no countdown", async () => {
+  const fridayDate = "2026-10-09";
+  const calls = [];
+  const { elements, todaySection, tomorrowSection } = createPage("light", async (url) => {
+    calls.push(url);
+    if (url === "/api/menu") {
+      return jsonResponse({ categories: apiMenu });
+    }
+    return jsonResponse({
+      plate: validPlate({ serviceDate: fridayDate, name: "Friday special" }),
+      nextPlate: null,
+    });
+  }, TEST_FRIDAY);
+  await flushPromises();
+
+  assert.ok(calls.includes("/api/plates/today"));
+
+  assert.equal(todaySection.hidden, false, "today's section is visible on Friday");
+  assert.equal(tomorrowSection.hidden, true, "tomorrow's section is hidden on Friday");
+
+  // Today rendered.
+  const todayHeading = findElement(elements["#today-plate"], (el) => el.tagName === "h3");
+  assert.equal(todayHeading.textContent, "Friday special");
+
+  // Tomorrow's region was left untouched (never "not announced yet").
+  assert.equal(findElement(elements["#tomorrow-plate"], (el) => el.tagName === "h3"), undefined);
+  assert.equal(elements["#tomorrow-plate"].children.length, 0);
+
+  // No countdown text and no interval started.
+  assert.equal(elements["#tomorrow-cutoff"].textContent, "");
 });
 
 test("includes a labelled Plate of the Day live region in the page", () => {
