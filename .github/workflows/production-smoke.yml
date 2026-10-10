@@ -80,5 +80,10 @@ jobs:
             cat /tmp/production-plates-today.json
             exit 1
           fi
-          jq -e 'type == "object" and has("plate") and has("nextPlate")' \
-            /tmp/production-plates-today.json >/dev/null
+          jq -e '
+            type == "object"
+            and has("plate")
+            and has("upcoming")
+            and (.upcoming | type == "array")
+            and ([.upcoming[] | has("serviceDate") and has("plate")] | all)
+          ' /tmp/production-plates-today.json >/dev/null

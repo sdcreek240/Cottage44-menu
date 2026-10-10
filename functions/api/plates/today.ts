@@ -25,12 +25,6 @@ type DailyPlateRecord = {
   plate: PlateRecord;
 };
 
-function addDay(value: string): string {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10);
-}
-
 type Dependencies = {
   fetchImpl?: typeof fetch;
   now?: Date;
@@ -42,6 +36,53 @@ const UUID_PATTERN =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function dayOfWeek(isoDate: string): number {
+  return new Date(`${isoDate}T00:00:00.000Z`).getUTCDay();
+}
+
+function isWorkday(isoDate: string): boolean {
+  const dow = dayOfWeek(isoDate);
+  return dow >= 1 && dow <= 5;
+}
+
+function addDays(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * The workdays we want in the "upcoming" rail, in order.
+ *
+ *   Fri / Sat / Sun → next week's Mon–Fri (bridge the weekend).
+ *   Mon–Thu         → the rest of the current week, up to Friday.
+ *
+ * Always non-empty; always in ascending order; never includes today.
+ */
+function upcomingWorkdaysFrom(todayIso: string): string[] {
+  const dow = dayOfWeek(todayIso);
+  const dates: string[] = [];
+
+  if (dow === 5 || dow === 6 || dow === 0) {
+    // Bridge to next week: keep walking forward until we have five workdays.
+    let cursor = todayIso;
+    while (dates.length < 5) {
+      cursor = addDays(cursor, 1);
+      if (isWorkday(cursor)) dates.push(cursor);
+    }
+    return dates;
+  }
+
+  // Mon–Thu: walk forward, stop at the weekend boundary, cap at five.
+  let cursor = todayIso;
+  while (dates.length < 5) {
+    cursor = addDays(cursor, 1);
+    if (!isWorkday(cursor)) break;
+    dates.push(cursor);
+  }
+  return dates;
 }
 
 function isSafeImageUrl(value: unknown, supabaseOrigin: string): value is string | null {
@@ -117,15 +158,26 @@ export async function handleTodayRequest(
   }
 
   const serviceDate = getBusinessDate(dependencies.now);
+  const upcomingDates = upcomingWorkdaysFrom(serviceDate);
+
+  // Today is only meaningful on a workday. On weekends we still query
+  // `upcomingDates` so the client can render the "next week" rail.
+  const today = isWorkday(serviceDate) ? serviceDate : null;
+
+  // Every date the response is allowed to contain, in ascending order.
+  const queryDates = today ? [today, ...upcomingDates] : upcomingDates;
+  const firstDate = queryDates[0];
+  const lastDate = queryDates[queryDates.length - 1];
+
   const queryUrl = new URL(`${config.url}/rest/v1/daily_plates`);
   queryUrl.searchParams.set(
     "select",
     "service_date,plate:plates(id,name,description,price_cents,image_url)",
   );
-  queryUrl.searchParams.append("service_date", `gte.${serviceDate}`);
-  queryUrl.searchParams.append("service_date", `lte.${addDay(serviceDate)}`);
+  queryUrl.searchParams.append("service_date", `gte.${firstDate}`);
+  queryUrl.searchParams.append("service_date", `lte.${lastDate}`);
   queryUrl.searchParams.set("order", "service_date.asc");
-  queryUrl.searchParams.set("limit", "2");
+  queryUrl.searchParams.set("limit", String(queryDates.length));
 
   let response: Response;
   try {
@@ -151,33 +203,48 @@ export async function handleTodayRequest(
     return upstreamFailure();
   }
 
-  if (!Array.isArray(rows) || rows.length > 2) {
+  if (!Array.isArray(rows) || rows.length > queryDates.length) {
     logger.error("[api] Supabase returned an invalid daily plate result.");
     return upstreamFailure();
   }
-  if (!rows.every((row) => {
-    const date = isRecord(row) && typeof row.service_date === "string"
-      ? row.service_date
-      : "";
-    return isDailyPlateRecord(row, date, config.url) &&
-      (date === serviceDate || date === addDay(serviceDate));
-  })) {
-    logger.error("[api] Supabase returned a daily plate with an invalid schema.");
-    return upstreamFailure();
+
+  const allowedDates = new Set(queryDates);
+  const rowByDate = new Map<string, DailyPlateRecord>();
+  for (const row of rows) {
+    if (
+      !isRecord(row) ||
+      typeof row.service_date !== "string" ||
+      !allowedDates.has(row.service_date) ||
+      !isDailyPlateRecord(row, row.service_date, config.url)
+    ) {
+      logger.error("[api] Supabase returned a daily plate with an invalid schema.");
+      return upstreamFailure();
+    }
+    if (rowByDate.has(row.service_date)) {
+      logger.error("[api] Supabase returned duplicate service dates.");
+      return upstreamFailure();
+    }
+    rowByDate.set(row.service_date, row);
   }
-  const mapPlate = (row: DailyPlateRecord | undefined) => row
-    ? {
-        id: row.plate.id,
-        serviceDate: row.service_date,
-        name: row.plate.name.trim(),
-        description: row.plate.description,
-        priceCents: row.plate.price_cents,
-        imageUrl: row.plate.image_url,
-      }
-    : null;
+
+  const mapPlate = (row: DailyPlateRecord | undefined) =>
+    row
+      ? {
+          id: row.plate.id,
+          serviceDate: row.service_date,
+          name: row.plate.name.trim(),
+          description: row.plate.description,
+          priceCents: row.plate.price_cents,
+          imageUrl: row.plate.image_url,
+        }
+      : null;
+
   return jsonResponse({
-    plate: mapPlate(rows.find((row) => row.service_date === serviceDate)),
-    nextPlate: mapPlate(rows.find((row) => row.service_date === addDay(serviceDate))),
+    plate: today ? mapPlate(rowByDate.get(today)) : null,
+    upcoming: upcomingDates.map((serviceDate) => ({
+      serviceDate,
+      plate: mapPlate(rowByDate.get(serviceDate)),
+    })),
   });
 }
 
